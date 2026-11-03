@@ -1,0 +1,10 @@
+# Online demo of the PDV (balança simulada, dados no navegador). The store runs the local server with `npm start`.
+# Security headers live in demo/_headers, copied into dist/ so they also apply to CLI and drag-and-drop deploys.
+[build]
+  command = "npm run build:demo"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # serialport is only needed on the store computer.
+  NPM_FLAGS = "--omit=optional"

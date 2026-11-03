@@ -183,5 +183,21 @@ São 28 testes, sem dependências externas (`node --test`):
 - `tests/http.test.js`: servidor real em porta aleatória. Token e host obrigatórios; fluxo completo (operador, abertura, 840 g → 0 → 420 g automáticos, produto, peso digitado, dinheiro e Pix, fechamento sem diferença); **duplo clique em Finalizar** (mesma venda enviada duas vezes ao mesmo tempo, e duas vendas diferentes disputando o mesmo carrinho) gera exatamente uma venda; histórico, cancelamento e correção pela API.
 
 **Nenhum teste de comunicação com a balança física foi realizado**; as fotos e o vídeo não demonstram a existência de cabo de dados ou qual interface está instalada.
-#   A c a i _ d a _ B a r r a  
- 
+
+## 9. Demonstração online (Netlify)
+
+O Netlify hospeda só arquivos estáticos, então ele não roda o servidor local, o SQLite em arquivo nem a porta serial. A pasta `demo/` gera uma **versão de demonstração que roda inteira no navegador**, para apresentar o sistema a clientes:
+
+- usa os mesmos `src/server.js`, `src/db.js`, `src/scale.js` e `public/` da loja; o SQLite roda no navegador com [sql.js](https://github.com/sql-js/sql.js) (WebAssembly);
+- vem com seis semanas de vendas de exemplo e o caixa do dia aberto; as datas acompanham o dia de quem abre;
+- balança simulada com botões de peso na frente de caixa; conexão serial desativada;
+- os dados ficam só no navegador de quem usa (`localStorage`), e o botão **Restaurar exemplo** volta ao início.
+
+```bash
+npm install
+npm run build:demo
+```
+
+O resultado fica em `dist/` (cabeçalhos de segurança em `demo/_headers`). Para conferir antes de publicar, rode `node demo/serve.js` e abra http://127.0.0.1:4173. Para publicar, ligue o repositório no Netlify (o `netlify.toml` já define o build) ou envie a pasta pronta com `netlify deploy --dir dist --no-build --prod`.
+
+A demonstração **não substitui** a instalação da loja: não lê a balança Toledo e não guarda dados em servidor.
