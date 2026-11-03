@@ -100,6 +100,11 @@
      <button type="button" class="pay" role="radio" aria-checked="false" tabindex="-1" data-pay="debit"><svg class="i" aria-hidden="true"><use href="#i-card"/></svg>Débito</button>
      <button type="button" class="pay" role="radio" aria-checked="false" tabindex="-1" data-pay="credit"><svg class="i" aria-hidden="true"><use href="#i-card"/></svg>Crédito</button>
     </div>
+    <div class="cash-box hidden" id="cash-box">
+     <label class="cash-field"><span class="field-label">Valor recebido</span><span class="cash-input"><span>R$</span><input id="cash-received" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-describedby="cash-change"/></span></label>
+     <div class="cash-quick" id="cash-quick" aria-label="Atalhos de valor recebido"></div>
+     <div class="cash-change" id="cash-change" aria-live="polite"></div>
+    </div>
     <button class="success big" id="btn-checkout"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Finalizar venda</button>
     <button class="link-btn" id="btn-clear">Limpar venda</button>
    </div>

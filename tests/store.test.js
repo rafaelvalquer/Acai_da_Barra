@@ -68,6 +68,26 @@ test('each payment method is totaled and only cash goes into the drawer',()=>{
   assert.deepEqual(s.report().methods,{cash:2550,pix:1000,debit:3000,credit:4000});
  }finally{f.clean();}
 });
+test('cash payment records the amount received and the change',()=>{
+ const f=fixture();const s=f.db;try{
+  s.openShift('100,00',f.op);
+  s.addManualValue('31,54');const key=randomUUID();
+  const sale=s.checkout('cash',key,'50,00').sale;
+  assert.equal(sale.received_cents,5000);assert.equal(sale.change_cents,1846);
+  // The drawer keeps the sale total: the change left with the customer.
+  assert.equal(s.cashSummary().expectedCents,10000+3154);
+  assert.equal(s.checkout('cash',key,'100,00').sale.change_cents,1846);
+  const detail=s.saleDetail(sale.id);assert.equal(detail.received_cents,5000);assert.equal(detail.change_cents,1846);
+  s.addManualValue('31,54');
+  assert.throws(()=>s.checkout('cash',randomUUID(),'30,00'),/Valor recebido menor/);
+  assert.throws(()=>s.checkout('cash',randomUUID(),'cinquenta'),/Use valor/);
+  assert.equal(s.cart.length,1);assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,1);
+  assert.equal(s.checkout('cash',randomUUID(),'R$ 31,54').sale.change_cents,0);
+  s.addManualValue('12,00');const blank=s.checkout('cash',randomUUID(),'').sale;assert.equal(blank.received_cents,null);assert.equal(blank.change_cents,null);
+  s.addManualValue('12,00');const pix=s.checkout('pix',randomUUID(),'50,00').sale;assert.equal(pix.received_cents,null);assert.equal(pix.change_cents,null);
+  assert.equal(s.cashSummary().expectedCents,10000+3154+3154+1200);
+ }finally{f.clean();}
+});
 test('closing the shift checks the cart, computes the difference and blocks new sales',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('100,00',f.op);sell(s,'cash','30,00');sell(s,'pix','12,00');s.moveCash('supply','10,00','troco');
@@ -208,6 +228,7 @@ test('a v0.1 database is migrated without losing sales',()=>{
  const s=f.db;try{
   assert.equal(s.getConfig().priceKgCents,5990);
   const sale=s.saleDetail(1);assert.equal(sale.status,'done');assert.equal(sale.operator_name,null);assert.equal(sale.items[0].manual,0);
+  assert.equal(sale.received_cents,null);assert.equal(sale.change_cents,null);
   const r=s.report();assert.equal(r.count,1);assert.equal(r.totalCents,1234);assert.equal(r.byOperator[0].name,'Não identificado');
   assert.equal(s.cashSummary().shift.id,1);
  }finally{f.clean();}

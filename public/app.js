@@ -23,6 +23,10 @@ const br=s=>`${s.slice(8,10)}/${s.slice(5,7)}/${s.slice(0,4)}`;
 const dayShort=s=>`${WEEK[new Date(utc(s)).getUTCDay()]} ${s.slice(8,10)}/${s.slice(5,7)}`;
 const localToday=()=>new Date().toLocaleDateString('en-CA');
 function stepPeriod(s,period,step){if(period==='month'){const d=new Date(utc(s));return iso(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+step,1));}return iso(utc(s)+step*(period==='week'?7:1)*86400000);}
+// Same format the server accepts ("50", "50,00", "R$ 50,00"); null when it doesn't parse.
+const parseMoney=v=>{const m=String(v).trim().replace(/^R\$\s*/,'').match(/^(\d{1,6})(?:[.,](\d{1,2}))?$/);return m?Number(m[1])*100+Number((m[2]||'').padEnd(2,'0')):null;};
+// Notes a customer is likely to hand over: R$ 31,54 → R$ 40, R$ 50, R$ 100.
+const quickBills=t=>[...new Set([1000,2000,5000,10000,20000].map(b=>Math.ceil(t/b)*b))].filter(v=>v>t).slice(0,3);
 function itemLine(kind,grams,quantity,unitCents){return kind==='weight'?`${weight(grams)} kg × ${money(unitCents)}/kg`:kind==='value'?'Valor digitado':`${quantity} un. × ${money(unitCents)}`;}
 // Skips identical re-renders from the polling loop so focus, hover and animations survive.
 function paint(id,html){const el=$(id);if(el._html!==html){el.innerHTML=html;el._html=html;}}
@@ -43,7 +47,18 @@ async function get(path){const r=await fetch(path,{cache:'no-store'});const x=aw
 async function post(path,obj={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':TOKEN},body:JSON.stringify(obj)});const x=await r.json();if(!r.ok)throw Error(x.error||'Falha ao salvar');return x;}
 async function run(path,obj,done){try{const r=await post(path,obj);if(done)done(r.result);await refresh();return r.result;}catch(e){flash(e.message,true);return null;}}
 function statusDisplay(s){return ({stable:'Estável',waiting:'Sem leitura',offline:'Desconectado',unstable:'Instável',negative:'Peso negativo',overload:'Sobrecarga',invalid:'Leitura inválida'})[s]||s;}
-function setPay(m){payMethod=m;document.querySelectorAll('[data-pay]').forEach(b=>{const on=b.dataset.pay===m;b.setAttribute('aria-checked',on);b.tabIndex=on?0:-1;});}
+function setPay(m){payMethod=m;document.querySelectorAll('[data-pay]').forEach(b=>{const on=b.dataset.pay===m;b.setAttribute('aria-checked',on);b.tabIndex=on?0:-1;});render();}
+function cashState(){const raw=$('cash-received').value.trim(),total=state.cartTotalCents,received=raw?parseMoney(raw):null;
+ return {raw,total,received,invalid:!!raw&&received===null,short:received!==null&&received<total};}
+// Change is recomputed on every render, so a weighing added after typing updates it too. Returns true while checkout must wait.
+function renderCashBox(){
+ const on=payMethod==='cash';$('cash-box').classList.toggle('hidden',!on);if(!on)return false;
+ const {raw,total,received,invalid,short}=cashState();
+ paint('cash-quick',total?[`<button type="button" data-received="${price(total)}">Exato</button>`,...quickBills(total).map(v=>`<button type="button" data-received="${price(v)}">R$ ${v/100}</button>`)].join(''):'');
+ paint('cash-change',!raw||!total?'<span class="cash-hint">Informe o valor recebido para calcular o troco</span>':invalid?'<span class="cash-hint neg">Use valor como 50,00</span>'
+  :short?`<span>Faltam</span><strong class="neg">${money(total-received)}</strong>`:`<span>Troco</span><strong class="pos">${money(received-total)}</strong>`);
+ return invalid||short;
+}
 function render(){
  if(!state.scale)return;
  const s=state.scale,c=state.config,shift=state.cash.shift,op=state.operator;
@@ -66,7 +81,8 @@ function render(){
  paint('quick-products',state.products.length?state.products.map((p,i)=>`<button class="product-button ${TONES[i%4]}" data-add="${p.id}" ${p.stock<1||!shift?'disabled':''}><span class="pb-plus">${icon('plus')}</span><span class="pb-name">${safe(p.name)}</span><small>${p.stock<1?'Sem estoque':p.stock+' em estoque'}</small><strong>${money(p.price_cents)}</strong></button>`).join(''):emptyState('box','Nenhum produto avulso','Cadastre itens como água e refrigerante na aba Produtos.'));
  const n=state.cart.length;$('cart-count').textContent=plural(n,'item','itens');$('cart-total').textContent=money(state.cartTotalCents);
  paint('cart-items',n?state.cart.map(p=>`<div class="cart-item"><span class="ci-icon ${p.manual?'is-manual':p.kind==='weight'?'is-weight':''}">${icon(p.manual?'keyboard':p.kind==='unit'?'box':'cup')}</span><div class="ci-main"><strong>${safe(p.label)}</strong><small>${itemLine(p.kind,p.grams,p.quantity,p.unitCents)}</small></div>${p.kind==='unit'?`<div class="qty"><button data-qty="${safe(p.key)}" data-to="${p.quantity-1}" ${p.quantity<2?'disabled':''} aria-label="Diminuir quantidade">${icon('minus')}</button><span>${p.quantity}</span><button data-qty="${safe(p.key)}" data-to="${p.quantity+1}" aria-label="Aumentar quantidade">${icon('plus')}</button></div>`:''}<span class="ci-total">${money(p.totalCents)}</span><button class="remove" data-remove="${safe(p.key)}" aria-label="Remover ${safe(p.label)}">${icon('x')}</button></div>`).join(''):emptyState('cup','Nenhum item ainda','Coloque o copo na balança ou toque em um produto avulso.'));
- $('btn-checkout').disabled=!shift||n===0||checkingOut;$('btn-clear').disabled=n===0;
+ const cashBlocked=renderCashBox();
+ $('btn-checkout').disabled=!shift||n===0||checkingOut||cashBlocked;$('btn-clear').disabled=n===0;
  renderCash();renderProducts();renderEmployees();
  if($('operator-dialog').open)renderOperatorOptions();
  if(s.lastError&&s.lastError!==seenAlert){seenAlert=s.lastError;flash(s.lastError,true);}
@@ -117,6 +133,7 @@ async function openSale(id){
  $('sale-body').innerHTML=`<div class="sale-meta"><div><small>Data e hora</small><strong>${date(s.created_at)}</strong></div><div><small>Operador</small><strong>${safe(s.operator_name||'—')}</strong></div><div><small>Pagamento</small><strong>${safe(PAY[s.method])}</strong></div><div><small>Itens</small><strong>${s.items.length}</strong></div></div>
   <div class="sale-items">${s.items.map(i=>`<div class="rowline"><div class="grow"><strong>${safe(i.label)}${i.manual?' <span class="tag warn">digitado</span>':''}</strong><small>${itemLine(i.kind,i.grams,i.quantity,i.unit_cents)}</small></div><strong>${money(i.total_cents)}</strong></div>`).join('')}</div>
   <div class="sale-total ${s.status==='canceled'?'is-canceled':''}"><span>Total</span><strong>${money(s.total_cents)}</strong></div>
+  ${s.received_cents!=null?`<div class="sale-change"><div class="rowline"><span>Valor recebido</span><strong>${money(s.received_cents)}</strong></div><div class="rowline"><span>Troco</span><strong>${money(s.change_cents)}</strong></div></div>`:''}
   ${s.status==='canceled'?`<div class="notice danger">${icon('alert')}<span><strong>Cancelada por ${safe(s.canceled_by_name||'—')}</strong> em ${date(s.canceled_at)}.<br/>Motivo: ${safe(s.cancel_reason)}</span></div>`:!s.cancelable?`<div class="notice">${icon('info')}<span>Vendas de caixas já fechados não podem ser canceladas, para não alterar um fechamento já conferido.</span></div>`:''}`;
  $('sale-actions').classList.toggle('hidden',!s.cancelable);$('sale-dialog').showModal();
  }catch(e){flash(e.message,true);}
@@ -169,13 +186,19 @@ async function boot(){try{TOKEN=(await get('/api/session')).token;await refresh(
  $('manual-form').addEventListener('submit',async e=>{e.preventDefault();const v=$('manual-input').value;const weightMode=manualMode==='weight';
   const ok=await run(weightMode?'/api/cart/manual-weight':'/api/cart/manual-value',weightMode?{weight:v}:{amount:v},()=>flash(weightMode?'Peso digitado adicionado à venda':'Valor digitado adicionado à venda'));
   if(ok)$('manual-dialog').close();else{$('manual-input').focus();$('manual-input').select();}});
- $('payment-method').addEventListener('click',e=>{const b=e.target.closest('[data-pay]');if(b)setPay(b.dataset.pay);});
+ $('payment-method').addEventListener('click',e=>{const b=e.target.closest('[data-pay]');if(!b)return;setPay(b.dataset.pay);if(b.dataset.pay==='cash')$('cash-received').focus();});
+ $('cash-received').addEventListener('input',render);
+ $('cash-received').addEventListener('keydown',e=>{if(e.key!=='Enter')return;e.preventDefault();const c=cashState();if(c.invalid||c.short)return flash(c.invalid?'Use valor como 50,00':'Valor recebido menor que o total da venda',true);$('btn-checkout').click();});
+ $('cash-quick').addEventListener('click',e=>{const b=e.target.closest('[data-received]');if(b){$('cash-received').value=b.dataset.received;render();}});
  $('payment-method').addEventListener('keydown',e=>{const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[e.key];if(!step)return;e.preventDefault();const list=[...document.querySelectorAll('[data-pay]')];const next=list[(list.findIndex(b=>b.dataset.pay===payMethod)+step+list.length)%list.length];setPay(next.dataset.pay);next.focus();});
- $('btn-checkout').addEventListener('click',async()=>{if(checkingOut)return;const n=state.cart.length;if(!await ask(`Finalizar venda de ${money(state.cartTotalCents)}?`,`${plural(n,'item','itens')} · pagamento em ${PAY[payMethod]}`,{confirmLabel:'Finalizar',tone:'success'}))return;
+ $('btn-checkout').addEventListener('click',async()=>{if(checkingOut)return;const n=state.cart.length,total=state.cartTotalCents;
+  const received=payMethod==='cash'?cashState().received:null;
+  if(!await ask(`Finalizar venda de ${money(total)}?`,`${plural(n,'item','itens')} · pagamento em ${PAY[payMethod]}`,{confirmLabel:'Finalizar',tone:'success',details:received!==null?[['Recebido',money(received)],['Troco',money(received-total),'pos']]:null}))return;
   // One request at a time: a second click can never post a second sale.
   checkingOut=true;$('btn-checkout').disabled=true;
-  try{const result=await run('/api/checkout',{method:payMethod,uuid:crypto.randomUUID()});if(result)flash(`Venda #${result.sale.id} finalizada com sucesso`);}finally{checkingOut=false;render();}});
- $('btn-clear').addEventListener('click',async()=>{if(await ask('Limpar a venda atual?','Todos os itens lançados nesta venda serão removidos.',{confirmLabel:'Limpar venda',tone:'danger-solid'}))run('/api/cart/clear');});
+  try{const result=await run('/api/checkout',{method:payMethod,uuid:crypto.randomUUID(),...(received!==null&&{received:price(received)})});
+   if(result){$('cash-received').value='';const change=result.sale.change_cents;flash(change!=null?`Venda #${result.sale.id} finalizada · troco ${money(change)}`:`Venda #${result.sale.id} finalizada com sucesso`);}}finally{checkingOut=false;render();}});
+ $('btn-clear').addEventListener('click',async()=>{if(await ask('Limpar a venda atual?','Todos os itens lançados nesta venda serão removidos.',{confirmLabel:'Limpar venda',tone:'danger-solid'}))run('/api/cart/clear',{},()=>{$('cash-received').value='';});});
  $('quick-products').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)run('/api/cart/unit',{id:Number(b.dataset.add),quantity:1});});
  $('cart-items').addEventListener('click',e=>{const r=e.target.closest('[data-remove]');if(r)return run('/api/cart/remove',{key:r.dataset.remove});const q=e.target.closest('[data-qty]');if(q)run('/api/cart/quantity',{key:q.dataset.qty,quantity:Number(q.dataset.to)});});
  $('cash-controls').addEventListener('click',async e=>{

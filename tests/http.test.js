@@ -39,8 +39,11 @@ test('full flow: automatic weighing, product, payment and closing',async()=>{
   await t.post('/api/cart/manual-weight',{weight:'0,300'});
   state=(await t.get('/api/state')).body;
   assert.deepEqual(state.cart.map(x=>x.totalCents),[5452,2726,500,1947]);assert.equal(state.cartTotalCents,10625);
-  const sale=(await t.post('/api/checkout',{method:'cash',uuid:randomUUID()})).body.result.sale;
-  assert.equal(sale.total_cents,10625);
+  const short=await t.post('/api/checkout',{method:'cash',uuid:randomUUID(),received:'100,00'});
+  assert.equal(short.status,400);assert.match(short.body.error,/Valor recebido menor/);
+  const sale=(await t.post('/api/checkout',{method:'cash',uuid:randomUUID(),received:'110,00'})).body.result.sale;
+  assert.equal(sale.total_cents,10625);assert.equal(sale.received_cents,11000);assert.equal(sale.change_cents,375);
+  assert.equal(t.db.db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,1);
   await t.post('/api/cart/manual-value',{amount:'18,00'});
   const pix=(await t.post('/api/checkout',{method:'pix',uuid:randomUUID()})).body.result.sale;
   assert.equal(pix.total_cents,1800);

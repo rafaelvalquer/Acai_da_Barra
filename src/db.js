@@ -39,7 +39,7 @@ class Store {
       CREATE TABLE IF NOT EXISTS employees(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL);
     `);
     // Databases created by v0.1 receive the new columns in place; existing rows are kept.
-    for(const [table,column,def] of [['shifts','opened_by','INTEGER'],['shifts','closed_by','INTEGER'],['sales','operator_id','INTEGER'],['sales','status',"TEXT NOT NULL DEFAULT 'done'"],['sales','canceled_at','TEXT'],['sales','canceled_by','INTEGER'],['sales','cancel_reason','TEXT'],['sale_items','manual','INTEGER NOT NULL DEFAULT 0'],['cash_events','operator_id','INTEGER']])this.addColumn(table,column,def);
+    for(const [table,column,def] of [['shifts','opened_by','INTEGER'],['shifts','closed_by','INTEGER'],['sales','operator_id','INTEGER'],['sales','status',"TEXT NOT NULL DEFAULT 'done'"],['sales','canceled_at','TEXT'],['sales','canceled_by','INTEGER'],['sales','cancel_reason','TEXT'],['sale_items','manual','INTEGER NOT NULL DEFAULT 0'],['cash_events','operator_id','INTEGER'],['sales','received_cents','INTEGER'],['sales','change_cents','INTEGER']])this.addColumn(table,column,def);
     this.db.exec('CREATE INDEX IF NOT EXISTS sales_created ON sales(created_at); CREATE INDEX IF NOT EXISTS sale_items_sale ON sale_items(sale_id);');
     this.db.prepare('INSERT OR IGNORE INTO settings(k,v) VALUES(?,?)').run('price_kg_cents','6490');
     this.db.prepare('INSERT OR IGNORE INTO settings(k,v) VALUES(?,?)').run('auto_capture','1');
@@ -138,12 +138,15 @@ class Store {
   removeCart(key){this.cart=this.cart.filter(x=>x.key!==key);return this.cart;}
   clearCart(){this.cart=[];return this.cart;}
   cartTotal(){return this.cart.reduce((s,x)=>s+x.totalCents,0);}
-  checkout(method,requestId){assert(['cash','pix','debit','credit'].includes(method),'Forma de pagamento inválida');const shift=this.shift();assert(shift,'Abra o caixa primeiro');
+  checkout(method,requestId,received){assert(['cash','pix','debit','credit'].includes(method),'Forma de pagamento inválida');const shift=this.shift();assert(shift,'Abra o caixa primeiro');
     const uuid=String(requestId||'');assert(/^[0-9a-zA-Z-]{12,80}$/.test(uuid),'Identificador de venda inválido');
     const existing=this.db.prepare('SELECT * FROM sales WHERE uuid=?').get(uuid);
     if(existing)return {sale:existing,duplicate:true};
     assert(this.cart.length>0,'Carrinho vazio');const op=this.requireOperator();
     const snapshot=this.cart.map(x=>({...x}));const total=this.cartTotal();assert(total>0,'Venda com total inválido');
+    // Amount handed over by the customer, optional and only for cash; the drawer still counts the sale total.
+    let receivedCents=null;
+    if(method==='cash'&&received!==undefined&&received!==null&&received!==''){receivedCents=readMoney(received);assert(receivedCents>=total,'Valor recebido menor que o total da venda');}
     this.db.exec('BEGIN IMMEDIATE');
     try{
       // Recheck stock and decrement atomically before storing the sale.
@@ -151,7 +154,7 @@ class Store {
         const result=this.db.prepare('UPDATE products SET stock=stock-? WHERE id=? AND active=1 AND stock>=?').run(item.quantity,item.productId,item.quantity);
         assert(result.changes===1,`Estoque insuficiente para ${item.label}`);
       }
-      const result=this.db.prepare('INSERT INTO sales(uuid,shift_id,created_at,method,total_cents,operator_id) VALUES(?,?,?,?,?,?)').run(uuid,shift.id,now(),method,total,op.id);
+      const result=this.db.prepare('INSERT INTO sales(uuid,shift_id,created_at,method,total_cents,operator_id,received_cents,change_cents) VALUES(?,?,?,?,?,?,?,?)').run(uuid,shift.id,now(),method,total,op.id,receivedCents,receivedCents===null?null:receivedCents-total);
       const saleId=Number(result.lastInsertRowid);
       const stmt=this.db.prepare('INSERT INTO sale_items(sale_id,product_id,kind,label,grams,quantity,unit_cents,total_cents,manual) VALUES(?,?,?,?,?,?,?,?,?)');
       for(const item of snapshot)stmt.run(saleId,item.productId||null,item.kind,item.label,item.grams||null,item.quantity||null,item.unitCents,item.totalCents,item.manual?1:0);

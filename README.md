@@ -14,7 +14,7 @@ O vídeo mostra a operação de um PDV de franquia, sem comprovar integração c
 ## 2. Funcionalidades implementadas
 
 **Pesagem e venda**
-- Frente de caixa: preço/kg configurável, peso e valor em tempo real, carrinho, múltiplos itens e pagamento em **dinheiro, Pix, débito ou crédito**. O botão Finalizar fica travado enquanto a venda é gravada, e cada venda leva um identificador único: um duplo clique nunca gera duas vendas.
+- Frente de caixa: preço/kg configurável, peso e valor em tempo real, carrinho, múltiplos itens e pagamento em **dinheiro, Pix, débito ou crédito**. No dinheiro, o funcionário informa o valor recebido (ou toca em "Exato" ou numa nota sugerida) e o **troco aparece na hora**; um valor menor que o total trava o Finalizar. O campo é opcional, e recebido e troco ficam gravados na venda. O botão Finalizar fica travado enquanto a venda é gravada, e cada venda leva um identificador único: um duplo clique nunca gera duas vendas.
 - Captação do peso com protocolo **Prt5**: comando `ENQ` (`0x05`), resposta `STX` + cinco caracteres + `ETX`; detecta leitura estável, instável, negativa e sobrecarga.
 - Captura automática depois de **3 amostras estáveis idênticas**; bloqueia captura dupla e exige **retorno a zero (pelo menos duas leituras)** antes da próxima pesagem.
 - Também há captura manual opcional, condicionada a peso estável.
@@ -132,7 +132,7 @@ Todas as rotas `POST` exigem o cabeçalho `X-Luminor-Token` obtido em `GET /api/
 | Estado e configuração | `GET /api/state`, `POST /api/config` |
 | Funcionários | `POST /api/employees/save` `{id?, name}`, `POST /api/employees/remove` `{id}`, `POST /api/operator` `{id}` |
 | Caixa | `POST /api/shift/open` `{opening, operatorId}`, `POST /api/shift/move` (sangria/suprimento), `POST /api/shift/close` `{counted}` |
-| Venda atual | `POST /api/cart/weight`, `/api/cart/unit`, `/api/cart/manual-weight` `{weight}`, `/api/cart/manual-value` `{amount}`, `/api/cart/quantity` `{key, quantity}`, `/api/cart/remove`, `/api/cart/clear`, `POST /api/checkout` `{method, uuid}` |
+| Venda atual | `POST /api/cart/weight`, `/api/cart/unit`, `/api/cart/manual-weight` `{weight}`, `/api/cart/manual-value` `{amount}`, `/api/cart/quantity` `{key, quantity}`, `/api/cart/remove`, `/api/cart/clear`, `POST /api/checkout` `{method, uuid, received?}` (`received` só em dinheiro; a venda devolve `received_cents` e `change_cents`) |
 | Vendas | `GET /api/sales?from=&to=&status=&q=`, `GET /api/sales/detail?id=`, `POST /api/sales/cancel` `{id, reason}`, `POST /api/sales/correct` `{id, reason}` |
 | Relatórios | `GET /api/report?period=day\|week\|month&date=AAAA-MM-DD` |
 | Produtos | `POST /api/products/save`, `POST /api/products/remove` |
@@ -175,12 +175,12 @@ O protótipo utiliza `node:sqlite`, presente no Node.js 22, que ainda emite um *
 npm test
 ```
 
-São 28 testes, sem dependências externas (`node --test`):
+São 29 testes, sem dependências externas (`node --test`):
 
 - `tests/protocol.test.js`: quadros Prt5 (estável, instável, negativo, sobrecarga), quadros fragmentados e arredondamento em reais.
 - `tests/scale.test.js`: **porta serial simulada** que responde ao `ENQ` como a balança. O peso estável entra na venda **automaticamente e uma única vez**; o mesmo copo no prato não duplica; só relança depois de voltar a zero; leituras instáveis, negativas, de sobrecarga ou oscilando nunca viram item; quadros quebrados em vários pedaços funcionam; com o caixa fechado ou o lançamento automático desligado o peso espera na balança; porta desconectada fica offline e o lançamento manual continua funcionando.
-- `tests/store.test.js`: venda com o mesmo identificador gravada uma vez só; as quatro formas de pagamento somam certo e só dinheiro entra no caixa; fechamento com diferença para mais e para menos, bloqueado com venda em aberto e sem novas vendas depois; sangria acima do caixa rejeitada; operador obrigatório e registrado; peso/valor digitados (válidos e inválidos); cancelamento devolve estoque e sai dos totais, exige motivo e não repete; cancelar e corrigir; relatórios de dia, semana e mês pelo calendário local; atualização de um banco da versão anterior sem perder vendas.
-- `tests/http.test.js`: servidor real em porta aleatória. Token e host obrigatórios; fluxo completo (operador, abertura, 840 g → 0 → 420 g automáticos, produto, peso digitado, dinheiro e Pix, fechamento sem diferença); **duplo clique em Finalizar** (mesma venda enviada duas vezes ao mesmo tempo, e duas vendas diferentes disputando o mesmo carrinho) gera exatamente uma venda; histórico, cancelamento e correção pela API.
+- `tests/store.test.js`: venda com o mesmo identificador gravada uma vez só; as quatro formas de pagamento somam certo e só dinheiro entra no caixa; troco calculado e gravado, valor recebido menor que o total rejeitado sem gravar a venda; fechamento com diferença para mais e para menos, bloqueado com venda em aberto e sem novas vendas depois; sangria acima do caixa rejeitada; operador obrigatório e registrado; peso/valor digitados (válidos e inválidos); cancelamento devolve estoque e sai dos totais, exige motivo e não repete; cancelar e corrigir; relatórios de dia, semana e mês pelo calendário local; atualização de um banco da versão anterior sem perder vendas.
+- `tests/http.test.js`: servidor real em porta aleatória. Token e host obrigatórios; fluxo completo (operador, abertura, 840 g → 0 → 420 g automáticos, produto, peso digitado, dinheiro com troco e Pix, fechamento sem diferença); **duplo clique em Finalizar** (mesma venda enviada duas vezes ao mesmo tempo, e duas vendas diferentes disputando o mesmo carrinho) gera exatamente uma venda; histórico, cancelamento e correção pela API.
 
 **Nenhum teste de comunicação com a balança física foi realizado**; as fotos e o vídeo não demonstram a existência de cabo de dados ou qual interface está instalada.
 

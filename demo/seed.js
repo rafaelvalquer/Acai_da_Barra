@@ -30,7 +30,8 @@ function seed(filename){
     for(let i=0;i<count;i++){
       for(let c=rnd()<.22?2:1;c>0;c--){if(rnd()<.05)s.addManualWeight('0,'+String(between(30,75)*10).padStart(3,'0'));else s.addWeighed(between(26,82)*10);}
       if(rnd()<.33)s.addManual(pick(prods),rnd()<.8?1:2);
-      ids.push(s.checkout(method(),randomUUID()).sale.id);
+      // Cash customers hand over the next R$ 10 up; computed without rnd(), so the rest of the data stays the same.
+      const m=method();ids.push(s.checkout(m,randomUUID(),m==='cash'?brl(Math.ceil(s.cartTotal()/1000)*1000):undefined).sale.id);
     }
     const span=(lastHour-firstHour)*60+50;
     ids.forEach((id,i)=>{const t=Math.floor((i+rnd()*.8)*span/ids.length);upd('UPDATE sales SET created_at=? WHERE id=?',at(offset,firstHour+Math.floor(t/60),t%60),id);});

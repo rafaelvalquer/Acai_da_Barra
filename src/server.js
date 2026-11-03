@@ -60,7 +60,7 @@ function createServer({db,scale}){
       case '/api/cart/quantity':result=db.setQuantity(b.key,b.quantity);break;
       case '/api/cart/remove':result=db.removeCart(b.key);break;
       case '/api/cart/clear':result=db.clearCart();break;
-      case '/api/checkout':result=db.checkout(b.method,b.uuid);break;
+      case '/api/checkout':result=db.checkout(b.method,b.uuid,b.received);break;
       case '/api/sales/cancel':result=db.cancelSale(b.id,b.reason);break;
       case '/api/sales/correct':result=db.correctSale(b.id,b.reason);break;
       case '/api/scale/demo':result=scale.demo();lastAutoError='';break;

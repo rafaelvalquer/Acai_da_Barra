@@ -188,6 +188,21 @@ input::placeholder{color:#b3a6b8}
 .pay[aria-checked="true"]{border-color:var(--berry);background:var(--berry-tint);color:var(--berry);box-shadow:0 0 0 3px rgba(94,33,72,.12)}
 .pay[aria-checked="true"] .i{color:var(--berry)}
 .pay[aria-checked="true"]::after{content:"";position:absolute;right:12px;width:10px;height:10px;border-radius:50%;background:var(--berry);box-shadow:0 0 0 3px #fff,0 0 0 4.5px var(--berry)}
+.cash-box{display:flex;flex-direction:column;gap:10px;background:var(--cream);border-radius:18px;padding:14px}
+.cash-field{gap:6px}
+.cash-input{display:flex;align-items:center;gap:8px;height:56px;border:2px solid var(--line-2);border-radius:16px;padding:0 16px;background:#fff;color:var(--muted);font-size:18px;font-weight:700;transition:border-color .15s,box-shadow .15s}
+.cash-input:focus-within{border-color:var(--pink);box-shadow:0 0 0 4px rgba(166,80,136,.18)}
+.cash-input input{border:0;outline:none;height:100%;min-width:0;padding:0;font-size:26px;font-weight:800;color:var(--ink);background:transparent;box-shadow:none!important;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.cash-quick{display:flex;flex-wrap:wrap;gap:6px}
+.cash-quick:empty{display:none}
+.cash-quick button{flex:1 1 0;min-height:40px;padding:0 10px;border:1.5px solid var(--line-2);border-radius:999px;background:#fff;color:var(--ink);font-weight:700;white-space:nowrap;transition:border-color .15s,background .15s,color .15s}
+.cash-quick button:hover{border-color:var(--berry);background:var(--berry-tint);color:var(--berry)}
+.cash-quick button:active{transform:scale(.97)}
+.cash-change{display:flex;justify-content:space-between;align-items:baseline;gap:12px;min-height:34px}
+.cash-change span{font-size:13px;font-weight:700;color:var(--muted)}
+.cash-change strong{font-size:28px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.cash-change .cash-hint{align-self:center;font-size:12.5px;font-weight:600}
+.cash-change .cash-hint.neg{color:var(--red)}
 
 /* Caixa, produtos e listas */
 .highlight{background:var(--cream);border-radius:18px;padding:18px 20px;margin:16px 0 8px}
@@ -306,6 +321,7 @@ input::placeholder{color:#b3a6b8}
 .sale-total strong{font-size:24px;font-weight:800}
 .sale-total.is-canceled{background:var(--cream);color:var(--muted)}
 .sale-total.is-canceled strong{text-decoration:line-through}
+.sale-change{margin-top:4px}
 #sale-actions{margin-top:18px}
 .seg{display:inline-grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:4px}
 .seg button{border:0;background:transparent;border-radius:999px;padding:8px 18px;font-weight:700;color:var(--muted);transition:background .15s,color .15s}
