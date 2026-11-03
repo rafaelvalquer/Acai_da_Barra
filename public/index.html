@@ -1,0 +1,247 @@
+<!doctype html><html lang="pt-BR"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Luminor PDV — Açaí da Barra</title>
+<link rel="preload" href="/fonts/work-sans.woff2" as="font" type="font/woff2" crossorigin/>
+<link rel="stylesheet" href="/style.css"/>
+</head><body>
+<svg class="sprite" aria-hidden="true" focusable="false">
+ <symbol id="i-cup" viewBox="0 0 24 24"><path d="M5 9.5h14l-1.5 10.2a1.6 1.6 0 0 1-1.6 1.3H8.1a1.6 1.6 0 0 1-1.6-1.3L5 9.5z"/><path d="M4 9.5h16"/><path d="M7.5 9.5a4.5 4.5 0 0 1 9 0"/><path d="M13.5 4.5 16 2"/></symbol>
+ <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h13"/><path d="M6 6V5a2 2 0 0 1 2-2h8"/><circle cx="16.5" cy="14.5" r="1.2"/></symbol>
+ <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></symbol>
+ <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></symbol>
+ <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V11"/><path d="M11 20V4"/><path d="M17 20v-6"/><path d="M3 20h18"/></symbol>
+ <symbol id="i-scale" viewBox="0 0 24 24"><path d="M6.5 9h11L20 20H4L6.5 9z"/><path d="M9 9a3 3 0 1 1 6 0"/></symbol>
+ <symbol id="i-pix" viewBox="0 0 24 24"><path d="m12 2.5 9.5 9.5-9.5 9.5L2.5 12z"/><path d="m12 8 4 4-4 4-4-4z"/></symbol>
+ <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></symbol>
+ <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/></symbol>
+ <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+ <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+ <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+ <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+ <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="m6 7 1 13h10l1-13"/><path d="M9 7V4h6v3"/></symbol>
+ <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></symbol>
+ <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+ <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></symbol>
+ <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0V8z"/><path d="M12 17v4"/></symbol>
+ <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5L7 4.5z"/></symbol>
+ <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+ <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+ <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19L12 3.5z"/><path d="M12 10v4M12 17h.01"/></symbol>
+ <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8-10-10z"/><circle cx="7.5" cy="8.5" r="1.5"/></symbol>
+ <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+ <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+ <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+ <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+ <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+ <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+ <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
+ <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2v-19z"/><path d="M9 7.5h6M9 11.5h6M9 15.5h3"/></symbol>
+ <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+</svg>
+
+<header class="topbar">
+ <div class="brand"><img class="logo" src="/logo.svg" alt="Açaí da Barra" width="112" height="56"/><div class="brand-text"><strong>Luminor PDV</strong><small>Frente de caixa da loja</small></div></div>
+ <div class="topright">
+  <button class="op-btn" id="operator-btn" title="Trocar operador"><span class="avatar" id="operator-avatar"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></span><span><small>Operador</small><strong id="operator-name">Selecionar</strong></span></button>
+  <span class="pill" id="connection">Balança offline</span><span class="pill" id="cash-badge">Caixa fechado</span>
+ </div>
+</header>
+
+<div class="shell">
+<nav class="sidebar" aria-label="Menu principal">
+ <div class="sidebar-head">Operação</div>
+ <button class="nav active" data-tab="vendas" title="Frente de caixa"><svg class="i" aria-hidden="true"><use href="#i-cup"/></svg><span class="label">Frente de caixa</span><span class="short">Vender</span></button>
+ <button class="nav" data-tab="historico" title="Histórico de vendas"><svg class="i" aria-hidden="true"><use href="#i-receipt"/></svg><span class="label">Histórico de vendas</span><span class="short">Vendas</span></button>
+ <button class="nav" data-tab="caixa" title="Movimentação de caixa"><svg class="i" aria-hidden="true"><use href="#i-wallet"/></svg><span class="label">Movimentação de caixa</span><span class="short">Caixa</span></button>
+ <button class="nav" data-tab="produtos" title="Produtos e estoque"><svg class="i" aria-hidden="true"><use href="#i-box"/></svg><span class="label">Produtos e estoque</span><span class="short">Produtos</span></button>
+ <button class="nav" data-tab="relatorios" title="Relatórios"><svg class="i" aria-hidden="true"><use href="#i-chart"/></svg><span class="label">Relatórios</span><span class="short">Relatórios</span></button>
+ <div class="sidebar-head mt">Configuração</div>
+ <button class="nav" data-tab="funcionarios" title="Funcionários"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><span class="label">Funcionários</span><span class="short">Equipe</span></button>
+ <button class="nav" data-tab="balanca" title="Balança Toledo"><svg class="i" aria-hidden="true"><use href="#i-scale"/></svg><span class="label">Balança Toledo</span><span class="short">Balança</span></button>
+ <div class="sidebar-note">MVP de demonstração.<br/>Não emite documentos fiscais.</div>
+</nav>
+
+<main class="content">
+
+<section id="vendas" class="panel">
+ <div class="heading"><div><span class="eyebrow">Frente de caixa</span><h1>Pesou, lançou, vendeu.</h1><p>O peso estabiliza, o sistema calcula e o copo já entra na venda.</p></div><span class="status-note" id="scale-note">Balança não conectada</span></div>
+ <div class="banner hidden" id="closed-banner"><span class="banner-icon"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg></span><div><strong>O caixa está fechado</strong><span>Abra o turno para começar a registrar vendas.</span></div><button class="primary" data-goto="caixa">Abrir caixa<svg class="i" aria-hidden="true"><use href="#i-arrow-right"/></svg></button></div>
+ <div class="sale-grid">
+  <div class="sale-main">
+   <div class="card weight-card">
+    <div class="card-title"><span>Pesagem em tempo real</span><span class="mode-tag" id="weight-mode">OFFLINE</span></div>
+    <div class="reading"><strong id="weight-value">0,000</strong><span>kg</span></div>
+    <div class="status-row"><span id="weight-status" class="chip">Aguardando</span><span class="hint" id="weight-instructions">Ative a balança ou o simulador</span></div>
+    <div class="weight-foot">
+     <label class="price-field">Preço por quilo<span class="input-prefix"><span>R$</span><input id="price-kg" inputmode="decimal" placeholder="64,90"/></span></label>
+     <button class="ghost-light" id="btn-price"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Salvar</button>
+     <div class="preview"><small>Valor da pesagem</small><strong id="weight-price">R$ 0,00</strong></div>
+    </div>
+    <div class="weight-actions" id="weight-actions">
+     <button class="accent big" id="btn-capture"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Adicionar pesagem à venda</button>
+     <button class="ghost-light" id="btn-manual"><svg class="i" aria-hidden="true"><use href="#i-keyboard"/></svg><span>Digitar peso ou valor</span></button>
+    </div>
+    <label class="switch"><input type="checkbox" id="auto-capture"/><span class="track" aria-hidden="true"></span>Lançar automaticamente quando o peso estabilizar</label>
+   </div>
+   <div class="card">
+    <div class="card-title"><span>Produtos avulsos</span><span class="minor">Toque para adicionar</span></div>
+    <div id="quick-products" class="product-grid"></div>
+   </div>
+  </div>
+  <div class="card cart-card">
+   <div class="card-title"><span>Venda atual</span><span class="count" id="cart-count">0 itens</span></div>
+   <div id="cart-items" class="cart-items"></div>
+   <div class="cart-bottom">
+    <div class="cart-total"><span>Total da venda</span><strong id="cart-total">R$ 0,00</strong></div>
+    <div class="field-label" id="pay-label">Forma de pagamento</div>
+    <div class="pay-grid" id="payment-method" role="radiogroup" aria-labelledby="pay-label">
+     <button type="button" class="pay" role="radio" aria-checked="true" data-pay="pix"><svg class="i" aria-hidden="true"><use href="#i-pix"/></svg>Pix</button>
+     <button type="button" class="pay" role="radio" aria-checked="false" tabindex="-1" data-pay="cash"><svg class="i" aria-hidden="true"><use href="#i-cash"/></svg>Dinheiro</button>
+     <button type="button" class="pay" role="radio" aria-checked="false" tabindex="-1" data-pay="debit"><svg class="i" aria-hidden="true"><use href="#i-card"/></svg>Débito</button>
+     <button type="button" class="pay" role="radio" aria-checked="false" tabindex="-1" data-pay="credit"><svg class="i" aria-hidden="true"><use href="#i-card"/></svg>Crédito</button>
+    </div>
+    <button class="success big" id="btn-checkout"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Finalizar venda</button>
+    <button class="link-btn" id="btn-clear">Limpar venda</button>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section id="historico" class="panel hidden">
+ <div class="heading"><div><span class="eyebrow">Histórico</span><h1>Vendas realizadas</h1><p>Consulte os itens de cada venda e cancele ou corrija vendas do caixa aberto.</p></div></div>
+ <div class="card">
+  <form class="filters" id="history-filters">
+   <label>De<input type="date" id="hist-from"/></label>
+   <label>Até<input type="date" id="hist-to"/></label>
+   <label>Situação<select id="hist-status"><option value="">Todas</option><option value="done">Concluídas</option><option value="canceled">Canceladas</option></select></label>
+   <label>Nº da venda<input id="hist-q" inputmode="numeric" placeholder="Ex.: 125" autocomplete="off"/></label>
+   <button class="secondary" type="submit"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg>Buscar</button>
+  </form>
+  <div class="hist-summary" id="hist-summary"></div>
+  <div id="hist-list"></div>
+ </div>
+</section>
+
+<section id="caixa" class="panel hidden">
+ <div class="heading"><div><span class="eyebrow">Financeiro</span><h1>Controle de caixa</h1><p>Abertura, sangria, suprimento e fechamento do turno.</p></div></div>
+ <div class="columns">
+  <div class="card"><div class="card-title">Situação do turno</div><div id="cash-summary"></div><div class="hline"></div><div id="cash-controls"></div></div>
+  <div class="card"><div class="card-title">Movimentações do turno</div><div id="cash-events"></div></div>
+ </div>
+</section>
+
+<section id="produtos" class="panel hidden">
+ <div class="heading"><div><span class="eyebrow">Catálogo</span><h1>Produtos e estoque</h1><p>Itens vendidos por unidade, sem passar pela balança.</p></div></div>
+ <div class="columns">
+  <div class="card"><div class="card-title" id="product-form-title">Cadastrar produto</div>
+   <form id="product-form" class="form"><input id="product-id" type="hidden"/>
+    <label>Nome do produto<input id="product-name" required placeholder="Água sem gás" maxlength="80"/></label>
+    <div class="grid2"><label>Preço de venda (R$)<input id="product-price" required inputmode="decimal" placeholder="5,00"/></label><label>Quantidade em estoque<input id="product-stock" type="number" min="0" max="999999" value="0" required/></label></div>
+    <div class="form-actions"><button type="submit" class="primary"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Salvar produto</button><button type="reset" class="link-btn">Cancelar edição</button></div>
+   </form>
+  </div>
+  <div class="card"><div class="card-title">Produtos cadastrados</div><div id="product-list"></div></div>
+ </div>
+</section>
+
+<section id="relatorios" class="panel hidden">
+ <div class="heading"><div><span class="eyebrow">Acompanhamento</span><h1>Relatórios de vendas</h1><p>Vendas por dia, semana e mês, com formas de pagamento e fechamentos de caixa.</p></div>
+  <div class="report-controls">
+   <div class="seg" role="tablist" aria-label="Período"><button role="tab" data-period="day" aria-selected="true">Dia</button><button role="tab" data-period="week" aria-selected="false">Semana</button><button role="tab" data-period="month" aria-selected="false">Mês</button></div>
+   <div class="period-nav"><button class="icon-btn" id="report-prev" aria-label="Período anterior"><svg class="i" aria-hidden="true"><use href="#i-chevron-left"/></svg></button><strong id="report-label">Hoje</strong><button class="icon-btn" id="report-next" aria-label="Próximo período"><svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg></button></div>
+  </div>
+ </div>
+ <div id="report-stats" class="stats"></div>
+ <div class="card chart-card hidden" id="report-chart-card">
+  <div class="card-title"><span>Total vendido por dia</span><span class="minor" id="chart-note"></span></div>
+  <div id="report-chart" class="bars"></div>
+  <details class="chart-table"><summary>Ver como tabela</summary><div id="report-chart-table"></div></details>
+ </div>
+ <div class="columns report-columns">
+  <div class="card"><div class="card-title">Vendas por operador</div><div id="report-operators"></div></div>
+  <div class="card"><div class="card-title">Fechamentos de caixa</div><div id="report-shifts"></div></div>
+ </div>
+</section>
+
+<section id="funcionarios" class="panel hidden">
+ <div class="heading"><div><span class="eyebrow">Equipe</span><h1>Funcionários</h1><p>Toda venda, sangria e cancelamento fica registrada com o nome de quem está no caixa.</p></div></div>
+ <div class="columns">
+  <div class="card"><div class="card-title" id="employee-form-title">Cadastrar funcionário</div>
+   <form id="employee-form" class="form"><input id="employee-id" type="hidden"/>
+    <label>Nome<input id="employee-name" required minlength="2" maxlength="40" placeholder="Ex.: Ana Paula" autocomplete="off"/></label>
+    <div class="form-actions"><button type="submit" class="primary"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Salvar funcionário</button><button type="reset" class="link-btn">Cancelar edição</button></div>
+   </form>
+  </div>
+  <div class="card"><div class="card-title">Equipe ativa</div><div id="employee-list"></div></div>
+ </div>
+</section>
+
+<section id="balanca" class="panel hidden">
+ <div class="heading"><div><span class="eyebrow">Hardware</span><h1>Balança Toledo Prix 3 Fit/2</h1><p>Versão fotografada: 6/15 kg. Comunicação Prt5, quando disponível.</p></div></div>
+ <div class="columns">
+  <div class="card"><div class="card-title">Conectar balança real</div>
+   <p class="minor">A porta serial ou conversor autorizado precisa estar instalado e configurado.</p>
+   <div class="form">
+    <button class="secondary" id="btn-ports"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg>Buscar portas COM</button>
+    <label>Porta serial<select id="serial-port"><option value="">Clique em Buscar portas COM</option></select></label>
+    <label>Velocidade<select id="baud"><option value="2400">2400 baud</option><option value="9600">9600 baud</option><option value="4800">4800 baud</option><option value="19200">19200 baud</option><option value="115200">115200 baud</option></select></label>
+    <div class="form-actions"><button class="primary" id="btn-connect"><svg class="i" aria-hidden="true"><use href="#i-plug"/></svg>Conectar</button><button class="secondary" id="btn-disconnect"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Desconectar</button></div>
+   </div>
+   <div class="notice"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span>Para uma implantação real, confirmar versão do firmware, protocolo C14, velocidade C15 e tipo de interface com o manual e suporte Toledo.</span></div>
+  </div>
+  <div class="card"><div class="card-title">Demonstração sem hardware</div>
+   <p class="minor">Simule a colocação do prato e a retirada para mostrar o fluxo à cliente.</p>
+   <button class="primary" id="btn-demo"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Ativar modo demonstração</button>
+   <div class="demo-buttons">
+    <button class="weight-btn" data-grams="250"><strong>250</strong><small>gramas</small></button>
+    <button class="weight-btn" data-grams="420"><strong>420</strong><small>gramas</small></button>
+    <button class="weight-btn" data-grams="840"><strong>840</strong><small>gramas</small></button>
+    <button class="weight-btn" data-grams="1200"><strong>1.200</strong><small>gramas</small></button>
+    <button class="secondary wide" data-grams="0"><svg class="i" aria-hidden="true"><use href="#i-arrow-up"/></svg>Retirar prato · 0 g</button>
+   </div>
+   <div class="notice"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span><strong>Segurança:</strong> o sistema impede novo lançamento automático até a balança voltar a zero. Não é um software fiscal homologado.</span></div>
+  </div>
+ </div>
+</section>
+
+</main></div>
+
+<dialog id="confirm-dialog" class="modal" aria-labelledby="confirm-title">
+ <form method="dialog">
+  <span class="modal-icon" id="confirm-icon"></span>
+  <h2 id="confirm-title"></h2>
+  <p id="confirm-message"></p>
+  <div id="confirm-details" class="modal-details"></div>
+  <label id="confirm-field" class="modal-field hidden"><span id="confirm-field-label"></span><input id="confirm-input" maxlength="180" autocomplete="off"/></label>
+  <div class="modal-actions"><button value="ok" class="primary" id="confirm-ok">Confirmar</button><button value="cancel" class="secondary" id="confirm-cancel" formnovalidate>Voltar</button></div>
+ </form>
+</dialog>
+
+<dialog id="manual-dialog" class="modal" aria-labelledby="manual-title">
+ <form id="manual-form" novalidate>
+  <span class="modal-icon"><svg class="i" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
+  <h2 id="manual-title">Lançamento manual</h2>
+  <p>Use quando a balança não enviar o peso. Fica registrado como digitado.</p>
+  <div class="seg" role="tablist" aria-label="Tipo de lançamento"><button type="button" role="tab" data-manual="weight" aria-selected="true">Peso (kg)</button><button type="button" role="tab" data-manual="value" aria-selected="false">Valor (R$)</button></div>
+  <label class="big-field"><span id="manual-label">Peso do copo</span><span class="big-input"><span id="manual-prefix"></span><input id="manual-input" inputmode="decimal" autocomplete="off" placeholder="0,450"/><span id="manual-unit">kg</span></span></label>
+  <div class="manual-preview" id="manual-preview"></div>
+  <div class="modal-actions"><button type="submit" class="primary" id="manual-ok"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Adicionar</button><button type="button" class="secondary" id="manual-cancel">Voltar</button></div>
+ </form>
+</dialog>
+
+<dialog id="operator-dialog" class="modal" aria-labelledby="operator-title">
+ <span class="modal-icon"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></span>
+ <h2 id="operator-title">Quem está no caixa?</h2>
+ <p>Toque no seu nome. As próximas vendas ficam registradas com ele.</p>
+ <div id="operator-options" class="op-grid"></div>
+ <form method="dialog"><button class="link-btn">Fechar</button></form>
+</dialog>
+
+<dialog id="sale-dialog" class="modal wide" aria-labelledby="sale-title">
+ <div class="modal-head"><h2 id="sale-title">Venda</h2><form method="dialog"><button class="icon-btn" aria-label="Fechar"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></form></div>
+ <div id="sale-body"></div>
+ <div class="modal-actions" id="sale-actions"><button class="primary" id="btn-sale-correct"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Cancelar e corrigir</button><button class="danger" id="btn-sale-cancel"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Cancelar venda</button></div>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div><script src="/app.js" defer></script>
+</body></html>
