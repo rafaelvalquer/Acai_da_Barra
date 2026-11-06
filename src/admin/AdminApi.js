@@ -57,8 +57,12 @@ class AdminApi {
       case 'database/integrity':{const s=await this.need(req);result=await sys.databases.integrity();await sys.audit({username:s.username,action:'integridade_verificada',ok:result.ok,detail:{mensagem:result.message}});break;}
       case 'database/test':result=await sys.migration.test({url:b.url,password:b.password,ca:b.ca},await this.need(req));break;
       case 'database/prepare':result=await sys.migration.prepare(await this.confirmed(req,b));break;
-      case 'database/migrate':result=await sys.migration.migrate(await this.confirmed(req,b));break;
-      case 'database/activate':result=await sys.migration.activate(await this.confirmed(req,b));break;
+      case 'database/sync/enable':result=await sys.migration.enableSync(await this.confirmed(req,b),{replace:b.replace===true});break;
+      case 'database/sync/disable':result=await sys.migration.disableSync(await this.confirmed(req,b));break;
+      case 'database/sync/now':result=await sys.migration.syncNow(await this.need(req));break;
+      case 'database/sync/resend':result=await sys.migration.resendAll(await this.confirmed(req,b));break;
+      // Only while an installation of the old cloud mode waits to move to the local database.
+      case 'database/convert':{await this.confirmed(req,b);if(!(await sys.migration.convertLegacy()))throw httpError(409,'Não há nada para converter: o PDV já usa o banco deste computador, ou a nuvem está fora do ar.');result=await sys.databaseInfo();break;}
       case 'database/use-local':result=await sys.migration.useLocal(await this.confirmed(req,b),{mode:b.mode});break;
       case 'backup/export':{
         const s=await this.need(req);const r=await sys.backups.create({kind:'manual',actor:s});

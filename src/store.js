@@ -31,8 +31,9 @@ class PdvStore {
     this.ctx.tx=fn=>adapter.transaction(q=>fn(repositories(q)));this.stateCache=null;
   }
   // Brings the schema up to date (existing rows are kept), fills the default settings and brings back open sales.
+  // afterInit (set by the cloud copy) sees every database opened here, the first one and any that replaces it.
   static async open(adapter){const store=new PdvStore(adapter);await store.init();return store;}
-  async init(){await migrate(this.adapter);await this.ctx.config.init();await this.ctx.sales.restoreOpenDraftSales();}
+  async init(){await migrate(this.adapter);await this.ctx.config.init();await this.ctx.sales.restoreOpenDraftSales();await this.afterInit?.(this.adapter);}
   get provider(){return this.adapter.provider;}
   schemaVersion(){return this.lock.run(()=>this.adapter.schemaVersion());}
   // Runs fn alone, with nothing else reading or writing (backup snapshot, restore).

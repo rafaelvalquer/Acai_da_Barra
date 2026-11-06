@@ -67,6 +67,7 @@ function render(){
  if(state.system?.version)$('app-version').textContent='v'+state.system.version;
  $('cash-badge').textContent=shift?'Caixa aberto':'Caixa fechado';$('cash-badge').className='pill '+(shift?'on':'warn');
  $('connection').textContent=s.mode==='demo'?'Simulador ativo':s.mode==='serial'?'Balança conectada':'Balança offline';$('connection').className='pill '+(s.mode==='offline'?'warn':'on');
+ cloudBadge(state.system?.sync);
  $('operator-name').textContent=op?op.name:'Selecionar';$('operator-btn').classList.toggle('warn',!op);
  paint('operator-avatar',op?safe(initials(op.name)):icon('user'));
  $('closed-banner').classList.toggle('hidden',!!shift);
@@ -211,6 +212,19 @@ function renderChart(r){
   return `<div class="bar-col${d.day===r.today?' today':''}" tabindex="0" aria-label="${dayShort(d.day)}: ${money(d.totalCents)}, ${plural(d.count,'venda','vendas')}"><div class="bar-tip">${dayShort(d.day)}<strong>${money(d.totalCents)}</strong>${plural(d.count,'venda','vendas')}</div><div class="bar-track"><div class="bar${d===top?' top':''}" data-h="${h.toFixed(1)}" data-v="${money(d.totalCents)}"></div></div><span class="bar-x">${label}</span></div>`;}).join('');
  document.querySelectorAll('#report-chart .bar').forEach(el=>el.style.height=el.dataset.h+'%');
  $('report-chart-table').innerHTML=`<div class="table-wrap"><table class="table"><thead><tr><th>Dia</th><th>Vendas</th><th>Total</th></tr></thead><tbody>${r.byDay.map(d=>`<tr><td>${dayShort(d.day)}</td><td>${d.count}</td><td><strong>${money(d.totalCents)}</strong></td></tr>`).join('')}</tbody></table></div>`;
+}
+// The cloud copy, in a discreet badge: only while something waits to be sent and the internet failed (or the send
+// takes over a minute). Selling never depends on it; the badge goes away by itself once everything was sent.
+function cloudBadge(s){
+ const b=$('cloud-badge');const show=!!s&&s.pendingChanges>0&&(s.state!=='enviando'||s.waitingMs>60000);
+ b.classList.toggle('hidden',!show);if(!show)return;
+ // On a narrow screen only the short part shows: "Sem internet · 2 vendas" (or just "Sem internet").
+ const head=s.state==='sem-conexao'?'Sem internet':s.state==='enviando'?'Enviando à nuvem':'Nuvem com problema';
+ b.className='pill cloud-badge'+(s.state==='erro'||s.state==='outro-dono'?' bad':'');
+ b.innerHTML=s.pendingSales?`${head} · ${plural(s.pendingSales,'venda','vendas')}<span class="cloud-more"> aguardando envio</span>`
+  :`${head}<span class="cloud-more"> · dados aguardando envio</span>`;
+ b.title=s.state==='sem-conexao'?'As vendas continuam normalmente e ficam guardadas neste computador. Elas vão para a nuvem sozinhas quando a internet voltar.'
+  :s.state==='enviando'?'As vendas estão sendo enviadas para a nuvem.':'As vendas continuam normalmente. Avise o administrador: a cópia na nuvem precisa de atenção.';
 }
 // A problem with the server or the database shows as a banner on every screen (not a toast every 850 ms); it goes
 // away by itself when the next refresh works. The Admin area keeps working meanwhile.

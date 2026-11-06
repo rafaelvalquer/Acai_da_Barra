@@ -119,7 +119,8 @@ function createServer({db,scale,system=null}){
   const server=http.createServer((req,res)=>{
     const port=server.address()?.port;
     if(req.headers.host&&![`127.0.0.1:${port}`,`localhost:${port}`].includes(req.headers.host))return fail(res,403,'Host não permitido');
-    router(req,res).catch(e=>{if(!e.status||e.status>=500)console.error(e);if(!res.headersSent)fail(res,e.status||400,e.message||'Falha interna');});
+    // e.expose: fields the screen needs to decide what to ask next (for example, to confirm a replacement).
+    router(req,res).catch(e=>{if(!e.status||e.status>=500)console.error(e);if(!res.headersSent)fail(res,e.status||400,e.message||'Falha interna',e.expose||{});});
   });
   server.settle=settle;
   return server;

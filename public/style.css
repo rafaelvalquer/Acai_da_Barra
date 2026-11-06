@@ -23,6 +23,8 @@ button:disabled{cursor:not-allowed;opacity:.45;transform:none!important;box-shad
 .pill{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700;white-space:nowrap}
 .pill::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--yellow);box-shadow:0 0 0 3px rgba(243,178,74,.35)}
 .pill.on::before{background:#8ee39a;box-shadow:0 0 0 3px rgba(142,227,154,.35)}
+.pill.bad::before{background:#ff9b8f;box-shadow:0 0 0 3px rgba(255,155,143,.35)}
+.cloud-badge{cursor:help}
 .op-btn{display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:4px 16px 4px 4px;text-align:left;line-height:1.15;transition:background .15s}
 .op-btn:hover{background:rgba(255,255,255,.24)}
 .op-btn small{display:block;font-size:10px;font-weight:600;color:rgba(255,255,255,.75);text-transform:uppercase;letter-spacing:.08em}
@@ -441,6 +443,7 @@ input::placeholder{color:#b3a6b8}
  .brand-text{display:none}
  .topright{gap:6px}
  .pill{padding:6px 10px;font-size:11px}
+ .cloud-more{display:none}
  .shell{display:block;padding:26px 16px 112px}
  .sidebar{position:fixed;top:auto;bottom:10px;left:10px;right:10px;z-index:30;min-height:0;flex-direction:row;justify-content:space-between;gap:2px;padding:6px;border-radius:24px;overflow-x:auto;scrollbar-width:none}
  .nav{flex:1 0 50px;width:auto;height:auto;flex-direction:column;gap:3px;padding:8px 2px;border-radius:18px;font-size:10px}

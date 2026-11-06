@@ -120,7 +120,7 @@ test('the operator at the counter has no way into the Admin area',{skip:SKIP},as
     assert.equal((await login(t,TEST_ADMIN_PASSWORD,'Operadora')).status,401);
     const gets=['overview','database','backup','diagnostics','access-log','audit'];
     for(const p of gets)assert.equal((await t.get('/api/admin/'+p,null)).status,401,p);
-    const posts=['logout','change-password','change-username','recovery-code','database/integrity','database/test','database/prepare','database/migrate','database/activate','database/use-local',
+    const posts=['logout','change-password','change-username','recovery-code','database/integrity','database/test','database/prepare','database/sync/enable','database/sync/disable','database/sync/now','database/sync/resend','database/convert','database/use-local',
       'backup/export','backup/download','backup/settings','backup/recovery-key','backup/recovery-key/confirm','backup/restore/validate','backup/restore/cancel','backup/restore','diagnostics/export'];
     for(const p of posts){const r=await t.post('/api/admin/'+p,{password:TEST_ADMIN_PASSWORD},null);assert.ok([401,200].includes(r.status)&&(p==='logout'||r.status===401),`${p}: ${r.status}`);}
     assert.equal((await t.upload(Buffer.from('x'),null)).status,401);

@@ -6,7 +6,7 @@
 const fs=require('node:fs'),fsp=require('node:fs/promises'),path=require('node:path');
 const {SQLiteAdapter}=require('../database/adapters/SQLiteAdapter');const {summarize}=require('../database/summary');
 const {exportLocalData}=require('../database/migration-tools/ExportLocalData');
-const {Mutex}=require('../database/Mutex');
+const {Mutex}=require('../database/Mutex');const ChangeLog=require('../sync/ChangeLog');
 const {encodeBackup,decodeBackup,BackupError,sha256,EXTENSION}=require('./BackupFormat');
 const {stamp}=require('./clock');const {selectToKeep}=require('./retention');
 // Kind of backup → folder under backups/.
@@ -36,6 +36,9 @@ class BackupManager {
     await this.store.exclusive(()=>this.store.adapter.backupTo(snap));
     const copy=SQLiteAdapter.open(snap,{journal:'DELETE'});
     try{
+      // The cloud copy's change log stays out of backups: they keep exactly the PDV's tables (a restore then sends
+      // everything to the cloud again).
+      if(await ChangeLog.isInstalled(copy)){await ChangeLog.remove(copy);await copy.exec('VACUUM');}
       if(!(await integrityOk(copy)))throw new BackupError('corrompido','A cópia do banco não passou na verificação de integridade. O backup não foi gravado.');
       return {payload:'sqlite',schemaVersion:await copy.schemaVersion(),summary:await summarize(copy),data:null,file:snap};
     }finally{await copy.close();}

@@ -9,8 +9,6 @@ const when=s=>s?new Date(s).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:
 const bytes=n=>n==null?'—':n<1024?`${n} B`:n<1048576?`${Math.round(n/1024)} KB`:n<1073741824?`${(n/1048576).toFixed(1).replace('.',',')} MB`:`${(n/1073741824).toFixed(1).replace('.',',')} GB`;
 const duration=s=>s<3600?`${Math.max(1,Math.round(s/60))} min`:s<86400?`${Math.floor(s/3600)} h ${Math.round(s%3600/60)} min`:`${Math.floor(s/86400)} d ${Math.floor(s%86400/3600)} h`;
 const KIND={manual:'Manual',automatico:'Automático',fechamento:'Fechamento do caixa',seguranca:'Segurança (antes de restaurar ou migrar)',atualizacao:'Antes de atualizar'};
-const TABLES={settings:'Configurações',employees:'Funcionários',products:'Produtos',shifts:'Turnos de caixa',cash_events:'Movimentações de caixa',sales:'Vendas',sale_items:'Itens das vendas',
- draft_sales:'Vendas abertas',draft_sale_items:'Itens das vendas abertas',draft_sale_events:'Histórico das vendas abertas'};
 const ACTIONS={login:'Entrada no painel',login_falhou:'Senha incorreta',login_bloqueado:'Acesso bloqueado',logout:'Saída',senha_alterada:'Senha alterada',usuario_alterado:'Usuário alterado',
  recuperacao_usada:'Código de recuperação usado',recuperacao_falhou:'Código de recuperação incorreto',codigo_recuperacao_gerado:'Novo código de recuperação',confirmacao_falhou:'Confirmação com senha incorreta'};
 const SCALE={stable:'Estável',waiting:'Sem leitura',offline:'Desconectada',unstable:'Instável',negative:'Peso negativo',overload:'Sobrecarga',invalid:'Leitura inválida'};
@@ -185,14 +183,28 @@ VIEWS.password=()=>{
   <div class="adm-auth-links"><button type="button" class="link-btn" data-act="logout">${icon('logout')}Sair</button></div>
  </div>`;
 };
+// The cloud copy, in words for the store. "sem-conexao" is not an error: the till keeps selling.
+const SYNC={'em-dia':'Em dia','enviando':'Enviando','sem-conexao':'Sem internet','erro':'Com erro','outro-dono':'Assumida por outro computador','desligado':'Desligada'};
+const syncTone=s=>s.state==='em-dia'?'pos':s.state==='enviando'?'':s.state==='sem-conexao'?'warn':'neg';
+const waitingText=s=>s.pendingSales?plural(s.pendingSales,'venda aguardando envio','vendas aguardando envio'):s.pendingChanges?'Alterações aguardando envio':'Nada';
+function syncAlerts(s){
+ if(!s?.enabled||!s.problem)return [];
+ const waiting=s.pendingSales?` ${plural(s.pendingSales,'venda aguarda','vendas aguardam')} envio.`:'';
+ if(s.problem.kind==='outro-dono')return [{level:'erro',text:s.problem.message}];
+ if(s.problem.kind==='erro')return [{level:'erro',text:`A cópia na nuvem não está sendo enviada: ${s.problem.message}${waiting} O caixa continua vendendo normalmente.`}];
+ return Date.now()-Date.parse(s.problem.since)>3600000?[{level:'aviso',text:`Sem conexão com a nuvem desde ${when(s.problem.since)}.${waiting} O caixa continua vendendo; tudo será enviado quando a internet voltar.`}]:[];
+}
 VIEWS.panel=()=>{
- const o=A.ov,s=A.status;const db=o.database;const local=db.provider==='sqlite';const last=o.backup.lastSuccess;
- const alerts=[...(o.backup.alerts||[])];
+ const o=A.ov,s=A.status;const db=o.database;const local=db.provider==='sqlite';const last=o.backup.lastSuccess;const sy=o.sync;
+ const alerts=[...syncAlerts(sy),...(o.backup.alerts||[])];
  if(s?.user&&!s.user.hasRecoveryCode)alerts.push({level:'aviso',text:'Gere o código de recuperação de emergência em Segurança e guarde fora do computador. Ele recupera o acesso se a senha for esquecida.'});
- if(!local&&!db.postgres?.connected)alerts.unshift({level:'erro',text:'O banco na nuvem está indisponível: as vendas estão pausadas. Abra Banco de dados para voltar ao banco local.'});
+ if(!local)alerts.unshift(db.postgres?.connected?{level:'aviso',text:'Passando para o modo offline: as vendas da nuvem estão sendo copiadas para este computador.'}
+  :{level:'erro',text:'Esta instalação ainda vende direto na nuvem, que está fora do ar: as vendas estão pausadas. Assim que a nuvem responder, o PDV passa a gravar neste computador. Em emergência, abra Banco de dados.'});
  if(o.maintenance)alerts.unshift({level:'aviso',text:o.maintenance});
+ const dbLine=local?(sy.enabled?`Este computador · nuvem ${SYNC[sy.state].toLowerCase()}`:'Este computador · funciona sem internet'):db.postgres?.connected?'Passando para o modo offline':'Nuvem · indisponível';
+ const dbTone=local?(sy.enabled&&!['pos',''].includes(syncTone(sy))?syncTone(sy):''):db.postgres?.connected?'warn':'neg';
  const cards=[
-  ['banco','database','Banco de dados','SQLite e Supabase',local?'Local (SQLite) · funciona sem internet':db.postgres?.connected?`Nuvem · ${db.postgres.host}`:'Nuvem · indisponível',!local&&!db.postgres?.connected?'neg':''],
+  ['banco','database','Banco de dados','Local e cópia na nuvem',dbLine,dbTone],
   ['backup','download','Backup e restauração','Exportar e recuperar',last?`Último: ${when(last.at)}`:'Nenhum backup ainda',o.backup.lastFailure?'neg':last?'':'warn'],
   ['seguranca','shield','Segurança','Alterar usuário e senha',`Usuário: ${o.user.username}`,''],
   ['manutencao','tool','Manutenção','Diagnósticos e logs',`Balança: ${o.scale.mode==='offline'?'desconectada':o.scale.mode==='demo'?'simulador':SCALE[o.scale.status]||o.scale.status}`,''],
@@ -203,40 +215,47 @@ VIEWS.panel=()=>{
   <div class="adm-grid">${cards.map(([to,ic,title,sub,line,cls])=>`<button type="button" class="adm-card" data-act="go" data-to="${to}"><span class="adm-card-icon">${icon(ic)}</span><strong>${title}</strong><span class="adm-card-sub">${sub}</span><small class="${cls}">${safe(line)}</small></button>`).join('')}</div>`;
 };
 function cloudSteps(d){
- const p=d.pending,m=d.migration;const same=m&&p&&m.target&&['host','port','database','user'].every(k=>m.target[k]===p[k]);
- const tested=!!p,prepared=A.cloud.prepared||!!A.cloud.test?.prepared||!!same,migrated=!!(same&&m.ok);
- return {tested,prepared,migrated,same,list:[['Testar conexão',tested],['Preparar o banco',prepared],['Migrar e conferir',migrated],['Ativar',false]]};
+ const tested=!!d.pending,prepared=tested&&(A.cloud.prepared||!!A.cloud.test?.prepared);
+ return {tested,prepared,list:[['Testar conexão',tested],['Preparar o banco',prepared],['Ativar a cópia',false]]};
+}
+function syncCard(s){
+ const p=s.problem;
+ return `<div class="card"><div class="card-title"><span>Cópia na nuvem (Supabase)</span><span class="adm-badge ${s.state==='em-dia'?'on':s.state==='enviando'?'cloud':'off'}">${icon('cloud')}${SYNC[s.state]}</span></div>
+  <p class="minor">As vendas são gravadas neste computador e enviadas para o Supabase automaticamente, em poucos segundos. Sem internet o caixa continua vendendo, e tudo é enviado quando a conexão voltar.</p>
+  ${rows([['Situação',p?p.message:s.full?'Enviando o banco inteiro e conferindo':s.pendingChanges?'Enviando as últimas alterações':'Tudo enviado',syncTone(s)],
+   ['Aguardando envio',waitingText(s),s.pendingSales?'warn':''],['Último envio',when(s.lastSyncAt)],
+   s.lastCheck&&['Última conferência',`${when(s.lastCheck.at)} · ${s.lastCheck.ok?'nuvem igual a este computador':'diferença corrigida'}`,s.lastCheck.ok?'pos':'warn'],
+   s.target&&['Servidor',`${s.target.host}:${s.target.port}`],s.target&&['Banco',s.target.database],s.target&&['Usuário',s.target.user],['Este computador',s.device]])}
+  <div class="adm-step-actions top-gap">
+   <button type="button" class="primary" data-act="db-sync-now">${icon('refresh')}Sincronizar agora</button>
+   <button type="button" class="secondary" data-act="db-sync-resend">${icon('upload')}Enviar tudo de novo</button>
+   <button type="button" class="danger" data-act="db-sync-disable">${icon('alert')}Desativar cópia na nuvem</button>
+  </div></div>`;
 }
 VIEWS.banco=()=>{
- const d=A.db,local=d.provider==='sqlite',pg=d.postgres,ig=d.integrity;
- const current=`<div class="card"><div class="card-title"><span>Banco em uso</span><span class="adm-badge ${local?'on':pg?.connected?'cloud':'off'}">${icon(local?'database':'cloud')}${local?'Local (SQLite)':'Nuvem (PostgreSQL)'}</span></div>
+ const d=A.db,local=d.provider==='sqlite',pg=d.postgres,ig=d.integrity,sy=d.sync;
+ const current=`<div class="card"><div class="card-title"><span>Banco em uso</span><span class="adm-badge ${local?'on':pg?.connected?'cloud':'off'}">${icon(local?'database':'cloud')}${local?'Este computador (SQLite)':'Nuvem (modo antigo)'}</span></div>
   ${local?rows([['Arquivo',d.sqlite.path,'mono'],['Tamanho',bytes(d.sqlite.bytes)],['Funciona sem internet','Sim','pos']])
    :rows([['Servidor',`${pg.host}:${pg.port}`],['Banco',pg.database],['Usuário',pg.user],['Conexão',pg.connected?`Conectado desde ${when(pg.connectedAt)}`:`Indisponível${pg.lastError?` · ${pg.lastError.message}`:''}`,pg.connected?'pos':'neg']])}
   ${rows([['Integridade',ig?`${ig.ok?'OK':'Problema'} · ${ig.message} · ${when(ig.at)}`:'Ainda não verificada',ig?(ig.ok?'pos':'neg'):''],['Último backup',when(d.lastBackupAt)],['Versão da estrutura',String(d.schemaVersion??'—')]])}
   <div class="form-actions top-gap"><button type="button" class="secondary" data-act="integrity">${icon('shield')}Verificar integridade</button></div></div>`;
- if(!local){
-  return `${head('Banco de dados','Onde as vendas, caixas, produtos e funcionários ficam gravados.')}
-   <div class="columns">${current}
-   <div class="card"><div class="card-title">Voltar para o banco local</div>
-    <p class="minor">O PDV volta a gravar neste computador e a funcionar sem internet.</p>
-    <div class="adm-options" role="radiogroup" aria-label="Como voltar">
-     <label class="adm-option"><input type="radio" name="local-mode" value="copiar" ${pg.connected?'checked':'disabled'}/><span><strong>Copiar os dados da nuvem para este computador</strong><small>Recomendado. Tudo o que foi vendido na nuvem vem junto, conferido tabela por tabela.${pg.connected?'':' Indisponível: a nuvem está fora do ar.'}</small></span></label>
-     <label class="adm-option"><input type="radio" name="local-mode" value="manter" ${pg.connected?'':'checked'}/><span><strong>Usar o banco local como estava na migração</strong><small>Para quando a nuvem está fora do ar. Vendas feitas na nuvem depois da migração não estarão nele.</small></span></label>
-    </div>
-    <button type="button" class="primary top-gap" data-act="db-local">${icon('database')}Voltar para o banco local</button>
-   </div></div>`;
- }
- const steps=cloudSteps(d),t=A.cloud.test,m=d.migration;
+ const page=body=>`${head('Banco de dados','Onde as vendas, caixas, produtos e funcionários ficam gravados.')}
+  ${d.busy||d.converting?notice('Uma operação de banco de dados está em andamento. Aguarde.','warn','alert'):''}
+  <div class="columns">${current}${body}</div>`;
+ if(!local)return page(`<div class="card"><div class="card-title"><span>Passar para o modo offline</span>${icon('cloud')}</div>
+   <p class="minor">Esta instalação ainda grava as vendas direto na nuvem e precisa de internet para vender. No modo offline as vendas são gravadas neste computador, e uma cópia vai para o Supabase sozinha.</p>
+   <p class="minor">${pg.connected?'A passagem acontece sozinha, com backup de segurança e conferência tabela por tabela. Se ela não terminou, faça agora:':'A nuvem está fora do ar: a passagem acontece sozinha assim que ela responder, sem perder nenhuma venda.'}</p>
+   <div class="adm-step-actions"><button type="button" class="primary" data-act="db-convert" ${pg.connected?'':'disabled'}>${icon('database')}Passar para o modo offline agora</button></div>
+   <details class="adm-details top-gap"><summary>Emergência: vender sem esperar a nuvem</summary>
+    <p class="minor">Usa o banco deste computador como estava quando os dados foram para a nuvem. As vendas feitas na nuvem depois disso não estarão nele, e ativar a cópia na nuvem depois vai pedir para substituir os dados de lá.</p>
+    <button type="button" class="danger" data-act="db-keep-local">${icon('alert')}Usar o banco deste computador como estava</button>
+   </details></div>`);
+ if(sy.enabled)return page(syncCard(sy));
+ const steps=cloudSteps(d),t=A.cloud.test;
  const stepper=`<ol class="adm-steps">${steps.list.map(([label,done],i)=>`<li class="${done?'done':steps.list.findIndex(x=>!x[1])===i?'current':''}"><span>${done?icon('check'):i+1}</span>${label}</li>`).join('')}</ol>`;
  const testBox=t?`<div class="adm-result ok">${icon('check')}<div><strong>Conexão funcionando</strong>${rows([['Servidor',t.server],['Tempo de resposta',`${t.latencyMs} ms`],['Conexão criptografada',t.tls===null?'—':t.tls?'Sim (TLS)':'Não',t.tls===false?'neg':''],['Conteúdo do banco',t.schema],['Vazio',t.empty?'Sim':'Não']])}</div></div>`:'';
- const migBox=m&&steps.same?`<div class="adm-result ${m.ok?'ok':'bad'}">${icon(m.ok?'check':'alert')}<div><strong>${m.ok?'Migração conferida':'A conferência encontrou diferenças'} · ${when(m.at)}</strong>
-   <div class="table-wrap"><table class="table"><thead><tr><th>Tabela</th><th>Local</th><th>Nuvem</th><th></th></tr></thead><tbody>${m.tables.map(x=>`<tr><td>${safe(TABLES[x.table]||x.table)}</td><td>${x.source}</td><td>${x.target}</td><td>${x.ok?`<span class="tag on">OK</span>`:`<span class="tag off">Diferente</span>`}</td></tr>`).join('')}</tbody></table></div>
-   ${m.totals?.length?`<p class="neg">${m.totals.map(x=>safe(`${x.item}: local ${x.source}, nuvem ${x.target}`)).join('<br/>')}</p>`:''}</div></div>`:'';
- return `${head('Banco de dados','Onde as vendas, caixas, produtos e funcionários ficam gravados.')}
-  ${d.busy?notice('Uma operação de banco de dados está em andamento. Aguarde.','warn','alert'):''}
-  <div class="columns">${current}
-  <div class="card"><div class="card-title"><span>Banco na nuvem (Supabase)</span>${icon('cloud')}</div>
-   <p class="minor">Opcional. Com a nuvem ativa, as vendas são gravadas no Supabase e é preciso internet para vender. Nada muda aqui até o último passo.</p>
+ return page(`<div class="card"><div class="card-title"><span>Cópia na nuvem (Supabase)</span>${icon('cloud')}</div>
+   <p class="minor">Opcional. As vendas continuam gravadas neste computador, funcionando sem internet, e uma cópia vai para o Supabase automaticamente, para acompanhar de fora e como segurança. Nada muda nas vendas até o último passo.</p>
    ${stepper}
    <form class="form" data-form="db-test" autocomplete="off">
     <label>Endereço de conexão (PostgreSQL)<input name="url" spellcheck="false" autocomplete="off" placeholder="postgresql://postgres.xxxx@aws-0-sa-east-1.pooler.supabase.com:5432/postgres"/></label>
@@ -249,11 +268,8 @@ VIEWS.banco=()=>{
    ${testBox}
    <div class="adm-step-actions">
     <button type="button" class="secondary" data-act="db-prepare" ${steps.tested?'':'disabled'}>${icon('database')}Preparar banco na nuvem</button>
-    <button type="button" class="secondary" data-act="db-migrate" ${steps.tested?'':'disabled'}>${icon('upload')}Migrar dados locais</button>
-    <button type="button" class="primary" data-act="db-activate" ${steps.migrated?'':'disabled'}>${icon('cloud')}Ativar banco na nuvem</button>
-   </div>
-   ${migBox}
-  </div></div>`;
+    <button type="button" class="primary" data-act="db-sync-enable" ${steps.tested?'':'disabled'}>${icon('cloud')}Ativar cópia na nuvem</button>
+   </div></div>`);
 };
 function restoreBlock(){
  const r=A.restore;
@@ -348,14 +364,14 @@ VIEWS.seguranca=()=>{
   </div>`;
 };
 VIEWS.manutencao=()=>{
- const d=A.diag,sv=d.service,sc=d.scale,db=d.database,pg=db.postgres;
+ const d=A.diag,sv=d.service,sc=d.scale,db=d.database,pg=db.postgres,sy=d.sync;
  const disk=d.disk?`${bytes(d.disk.freeBytes)} livres de ${bytes(d.disk.totalBytes)}`:'—';const lowDisk=d.disk&&d.disk.freeBytes<2*1073741824;
  return `${head('Manutenção','Situação do sistema, erros recentes e diagnóstico para o suporte.')}
   <div class="adm-tiles">
    ${[['Versão instalada',d.version,'info',''],['Serviço do PDV',`Em execução há ${duration(sv.uptimeSec)}`,'play','pos'],
      ['Balança Toledo',sc.mode==='offline'?'Desconectada':sc.mode==='demo'?'Simulador ativo':SCALE[sc.status]||sc.status,'scale',sc.mode==='serial'&&sc.status!=='offline'?'pos':'warn'],
-     ['Banco ativo',db.provider==='sqlite'?'Local (SQLite)':'Nuvem (PostgreSQL)','database',''],
-     ['Supabase',pg?(pg.connected?'Conectado':'Indisponível'):'Não usado','cloud',pg?(pg.connected?'pos':'neg'):''],
+     ['Banco ativo',db.provider==='sqlite'?'Este computador (SQLite)':'Nuvem (modo antigo)','database',''],
+     ['Cópia na nuvem',sy.enabled?SYNC[sy.state]:pg?(pg.connected?'Modo antigo · conectado':'Modo antigo · indisponível'):'Não usada','cloud',sy.enabled?syncTone(sy):pg?(pg.connected?'warn':'neg'):''],
      ['Último backup',when(d.backup.lastSuccessAt),'download',d.backup.lastFailure?'neg':d.backup.lastSuccessAt?'':'warn'],
      ['Espaço em disco',disk,'folder',lowDisk?'neg':'']].map(([l,v,ic,c])=>`<div class="adm-tile"><span class="adm-tile-icon">${icon(ic)}</span><small>${l}</small><strong class="${c}">${safe(v)}</strong></div>`).join('')}
   </div>
@@ -363,6 +379,7 @@ VIEWS.manutencao=()=>{
    <div class="card"><div class="card-title">Detalhes</div>
     ${rows([['Processo',`PID ${sv.pid} · ${sv.memoryMb} MB de memória`],['Node.js',sv.node],['Sistema',sv.platform],['Início automático pelo Windows',sv.supervised?'Sim':'Não (aberto manualmente)'],
       ['Porta da balança',sc.port||'Não configurada'],sc.lastError&&['Último erro da balança',sc.lastError,'neg'],pg&&['Servidor na nuvem',`${pg.host}:${pg.port}`],pg?.lastError&&['Último erro da nuvem',pg.lastError.message,'neg'],
+      sy.enabled&&['Cópia na nuvem',`${sy.target?.host||'—'} · último envio ${when(sy.lastSyncAt)} · ${waitingText(sy).toLowerCase()}`],sy.problem&&['Problema na cópia',sy.problem.message,syncTone(sy)],
       d.backup.lastFailure&&['Última falha de backup',`${when(d.backup.lastFailure.at)} · ${d.backup.lastFailure.error}`,'neg']])}
     <div class="form-actions top-gap"><button type="button" class="primary" data-act="diag-export">${icon('download')}Exportar diagnóstico</button><button type="button" class="secondary" data-act="go" data-to="manutencao">${icon('refresh')}Atualizar</button></div>
     <p class="minor top-gap">O diagnóstico não inclui senhas, chaves nem dados de vendas. Envie ao suporte quando pedirem.</p>
@@ -495,21 +512,31 @@ const ACTS={
  async logout(b){await guard(b,async()=>{await apiPost('logout');});A.restore=null;A.key=null;A.code=null;A.lastBackup=null;A.cloud={test:null,prepared:false};go('home');},
  integrity:b=>guard(b,async()=>{const r=await apiPost('database/integrity');flash(r.ok?'Banco íntegro':`Problema encontrado: ${r.message}`,!r.ok);go(A.view);}),
  async 'db-prepare'(){
-  const r=await withPassword({title:'Preparar o banco na nuvem?',message:'Cria as tabelas do PDV no banco do Supabase testado. Nada muda no banco local.',confirmLabel:'Preparar',iconName:'database'},pw=>apiPost('database/prepare',{password:pw}));
-  if(r){A.cloud.prepared=true;flash(r.result.empty?'Banco na nuvem preparado e vazio, pronto para a migração':'Banco na nuvem preparado');go('banco');}
+  const r=await withPassword({title:'Preparar o banco na nuvem?',message:'Cria as tabelas do PDV no banco do Supabase testado. Nada muda no banco deste computador.',confirmLabel:'Preparar',iconName:'database'},pw=>apiPost('database/prepare',{password:pw}));
+  if(r){A.cloud.prepared=true;flash(r.result.empty?'Banco na nuvem preparado e vazio, pronto para a cópia':'Banco na nuvem preparado');go('banco');}
  },
- async 'db-migrate'(){
-  const r=await withPassword({title:'Migrar os dados locais?',message:'Com o caixa fechado, as vendas pausam por alguns instantes: é feito um backup de segurança, todos os registros são copiados para a nuvem e conferidos tabela por tabela. O banco local continua ativo.',confirmLabel:'Migrar e conferir',iconName:'upload'},pw=>apiPost('database/migrate',{password:pw}));
-  if(r){flash('Migração concluída e conferida');go('banco');}else go('banco');
+ async 'db-sync-enable'(){
+  const enable=replace=>pw=>apiPost('database/sync/enable',{password:pw,replace}).catch(e=>{if(e.data?.needsReplace)return {needsReplace:true,message:e.message};throw e;});
+  let r=await withPassword({title:'Ativar a cópia na nuvem?',message:'As vendas continuam gravadas neste computador e passam a ser enviadas para o Supabase automaticamente. Primeiro vai o banco inteiro, conferido tabela por tabela; o caixa continua vendendo enquanto isso.',confirmLabel:'Ativar cópia na nuvem',iconName:'cloud'},enable(false));
+  if(r?.result?.needsReplace)r=await withPassword({title:'Substituir os dados da nuvem?',message:`${r.result.message} Os dados deste computador não mudam.`,confirmLabel:'Substituir e ativar',tone:'danger-solid'},enable(true));
+  if(r&&!r.result?.needsReplace){A.cloud={test:null,prepared:false};flash('Cópia na nuvem ativa');go('banco');}
  },
- async 'db-activate'(){
-  const r=await withPassword({title:'Ativar o banco na nuvem?',message:'A partir de agora as vendas são gravadas no Supabase e é preciso internet para vender. O banco local fica guardado como estava.',confirmLabel:'Ativar banco na nuvem',iconName:'cloud'},pw=>apiPost('database/activate',{password:pw}));
-  if(r){A.cloud={test:null,prepared:false};flash('Banco na nuvem ativo');go('banco');}
+ 'db-sync-now':b=>guard(b,async()=>{const s=await apiPost('database/sync/now');flash(s.pendingChanges?'Enviando para a nuvem':'Tudo enviado para a nuvem');go('banco');}),
+ async 'db-sync-resend'(){
+  const r=await withPassword({title:'Enviar tudo de novo?',message:'O banco inteiro deste computador é enviado para a nuvem e conferido tabela por tabela, substituindo o que está lá. O caixa continua vendendo enquanto isso.',confirmLabel:'Enviar tudo',iconName:'upload'},pw=>apiPost('database/sync/resend',{password:pw}));
+  if(r){flash('Envio completo iniciado');go('banco');}
  },
- async 'db-local'(){
-  const mode=root().querySelector('input[name="local-mode"]:checked')?.value||'copiar';
-  const r=await withPassword({title:'Voltar para o banco local?',message:mode==='copiar'?'Os dados da nuvem são copiados para este computador e conferidos. O PDV volta a funcionar sem internet.':'O PDV volta a usar o banco local como estava na migração. Vendas feitas na nuvem depois disso não estarão nele.',confirmLabel:'Voltar para o banco local',tone:mode==='copiar'?'primary':'danger-solid',iconName:'database'},pw=>apiPost('database/use-local',{password:pw,mode}));
-  if(r){flash('Banco local ativo');go('banco');}
+ async 'db-sync-disable'(){
+  const r=await withPassword({title:'Desativar a cópia na nuvem?',message:'As vendas continuam neste computador, mas deixam de ser enviadas para o Supabase. O que já está na nuvem fica lá. Para ativar de novo, teste a conexão outra vez.',confirmLabel:'Desativar',tone:'danger-solid'},pw=>apiPost('database/sync/disable',{password:pw}));
+  if(r){flash('Cópia na nuvem desativada');go('banco');}
+ },
+ async 'db-convert'(){
+  const r=await withPassword({title:'Passar para o modo offline agora?',message:'É feito um backup de segurança, as vendas da nuvem são copiadas para este computador e conferidas, e a cópia na nuvem passa a ser enviada sozinha. As vendas pausam por alguns instantes.',confirmLabel:'Passar agora',iconName:'database'},pw=>apiPost('database/convert',{password:pw}));
+  if(r){flash('Modo offline ativo');go('banco');}
+ },
+ async 'db-keep-local'(){
+  const r=await withPassword({title:'Usar o banco deste computador como estava?',message:'As vendas feitas na nuvem depois que os dados foram para lá não estarão nele. Use só em emergência, com a nuvem fora do ar.',confirmLabel:'Usar o banco deste computador',tone:'danger-solid',iconName:'database'},pw=>apiPost('database/use-local',{password:pw,mode:'manter'}));
+  if(r){flash('Vendendo com o banco deste computador');go('banco');}
  },
  'backup-now':b=>guard(b,async()=>{A.lastBackup=await apiPost('backup/export');flash('Backup gravado');go('backup');}),
  download:b=>guard(b,async()=>{const n=await download('backup/download',{name:b.dataset.name},{description:'Backup do Luminor PDV',extension:'.luminorbackup',mime:'application/octet-stream'});if(n)flash(`Arquivo salvo: ${n}`);}),

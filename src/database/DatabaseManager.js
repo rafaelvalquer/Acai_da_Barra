@@ -1,8 +1,10 @@
 'use strict';
-// Which database holds the sales: the local SQLite file (default, works without internet) or PostgreSQL on Supabase,
-// chosen in the Admin area. At start, the choice saved there wins over config/luminor-pdv.env. If the cloud database
-// cannot be reached, the PDV still starts: sales answer "database unavailable" and it keeps trying to reconnect
-// every 30 seconds, while the Admin area stays available (for example, to go back to the local database).
+// Which database the till sells on: the local SQLite file, always, so sales never wait for the internet (the cloud
+// receives a copy, see src/sync/CloudSync.js). Installations of the old cloud mode, where the till sold straight on
+// PostgreSQL (saved in the Admin area, or PDV_DATABASE_PROVIDER=postgres in config/luminor-pdv.env), still open on
+// it until the move to the local database (DatabaseMigrationService.convertLegacy). If that cloud database cannot be
+// reached at start, the PDV still starts: sales answer "database unavailable" and it keeps trying to reconnect every
+// 30 seconds (onReconnect then runs the move), while the Admin area stays available.
 const fs=require('node:fs');
 const {SQLiteAdapter}=require('./adapters/SQLiteAdapter');const {PostgresAdapter}=require('./adapters/PostgresAdapter');
 const {PdvStore}=require('../store');
@@ -20,7 +22,7 @@ function describeUrl(url){
 }
 class DatabaseManager {
   constructor({config,settings=null,vault=null,log=console,connect=opts=>PostgresAdapter.connect(opts)}){
-    Object.assign(this,{config,settings,vault,log,connect});this.store=null;this.timer=null;this.lastError=null;this.connectedAt=null;this.lastIntegrity=null;
+    Object.assign(this,{config,settings,vault,log,connect});this.store=null;this.timer=null;this.lastError=null;this.connectedAt=null;this.lastIntegrity=null;this.onReconnect=null;this.retryMs=RETRY_MS;
   }
   // The saved choice: {provider:'sqlite'|'postgres', url, ca}.
   async choice(){
@@ -44,9 +46,10 @@ class DatabaseManager {
     clearTimeout(this.timer);
     this.timer=setTimeout(async()=>{
       if(!this.store.adapter.unavailable||this.active!==c)return;
-      try{const a=await this.connectPostgres(c);await this.store.exclusive(()=>this.store.replaceAdapter(a));this.connectedAt=new Date().toISOString();this.lastError=null;this.log.info?.('Conexão com o banco na nuvem restabelecida.');}
+      try{const a=await this.connectPostgres(c);await this.store.exclusive(()=>this.store.replaceAdapter(a));this.connectedAt=new Date().toISOString();this.lastError=null;this.log.info?.('Conexão com o banco na nuvem restabelecida.');
+        Promise.resolve(this.onReconnect?.()).catch(()=>{});}
       catch(e){this.lastError={at:new Date().toISOString(),message:e.message};this.retry(c);}
-    },RETRY_MS);this.timer.unref?.();
+    },this.retryMs);this.timer.unref?.();
   }
   // Switches the store to another database (after a migration, or back to local). Runs inside store.exclusive().
   async switchTo(adapter,choice){clearTimeout(this.timer);await this.store.replaceAdapter(adapter);this.active=choice;this.connectedAt=adapter.dialect==='postgres'?new Date().toISOString():null;this.lastError=null;}

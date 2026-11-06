@@ -6,12 +6,12 @@
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {HardwareConfig}=require('../hardware');const {AdminSettingsService}=require('../config/AdminSettingsService');
 const {AdminSessionService}=require('../auth/AdminSessionService');const {AdminBootstrap}=require('../auth/AdminBootstrap');const {AdminAuthService}=require('../auth/AdminAuthService');
-const {BackupService}=require('../backup/BackupService');const {DatabaseMigrationService}=require('../database/DatabaseMigrationService');
+const {BackupService}=require('../backup/BackupService');const {DatabaseMigrationService}=require('../database/DatabaseMigrationService');const {CloudSync}=require('../sync/CloudSync');
 const {describeUrl}=require('../database/DatabaseManager');const {AdminApi}=require('./AdminApi');const {mask}=require('../logger');
 const httpError=(status,message)=>Object.assign(Error(message),{status});
 const STARTED=new Date().toISOString();
 class AdminSystem {
-  constructor({config,databases,adminStore,vault,settings=null,scale,log=console,clock,hooks={},schedule=true}){
+  constructor({config,databases,adminStore,vault,settings=null,scale,log=console,clock,hooks={},schedule=true,syncTiming={}}){
     Object.assign(this,{config,databases,adminStore,vault,scale,log,schedule});this.maintenanceMessage=null;this.sticky=false;this.onRestored=null;
     this.hardware=new HardwareConfig(path.join(config.paths.config,'hardware.json'));
     this.auditFilePath=path.join(config.paths.logs,'auditoria.log');
@@ -21,10 +21,13 @@ class AdminSystem {
     this.auth=new AdminAuthService({store:adminStore,sessions:this.sessions,bootstrap:this.bootstrap,vault,audit:e=>this.audit(e)});
     const setMaintenance=(m,o)=>this.setMaintenance(m,o);const audit=e=>this.audit(e);
     this.backups=new BackupService({config,store:databases.store,settings:this.settings,vault,hardware:this.hardware,log,clock,hooks,setMaintenance,audit});
-    this.migration=new DatabaseMigrationService({config,manager:databases,settings:this.settings,vault,backups:this.backups,setMaintenance,audit,log});
+    this.sync=new CloudSync({databases,settings:this.settings,vault,log,audit,timing:syncTiming});
+    this.migration=new DatabaseMigrationService({config,manager:databases,settings:this.settings,vault,backups:this.backups,sync:this.sync,setMaintenance,audit,log});
+    // The old cloud mode moves to the local database as soon as the cloud answers again.
+    databases.onReconnect=()=>this.migration.convertLegacy();
     this.api=new AdminApi(this);
   }
-  static async start(opts){const s=new AdminSystem(opts);await s.bootstrap.ensure();await s.backups.start({schedule:opts.schedule!==false});return s;}
+  static async start(opts){const s=new AdminSystem(opts);await s.bootstrap.ensure();await s.backups.start({schedule:opts.schedule!==false});await s.sync.start();return s;}
   get db(){return this.databases.store;}
   get version(){return this.config.version;}
   maintenance(){return this.maintenanceMessage;}
@@ -38,7 +41,7 @@ class AdminSystem {
   handle(req,res,ctx){return this.api.handle(req,res,ctx);}
   async brief(){
     const unavailable=this.db.adapter.unavailable;
-    return {version:this.version,maintenance:this.maintenanceMessage,database:{provider:this.db.adapter.dialect,unavailable:!!unavailable},...this.backups.brief()};
+    return {version:this.version,maintenance:this.maintenanceMessage,database:{provider:this.db.adapter.dialect,unavailable:!!unavailable},sync:this.sync.brief(),...this.backups.brief()};
   }
   afterShiftClose(){this.backups.afterShiftClose();}
   rememberScale(portPath,baudRate){try{this.hardware.rememberScale(portPath,baudRate);}catch(e){this.log.error?.(`Porta da balança não gravada: ${e.message}`);}}
@@ -48,18 +51,19 @@ class AdminSystem {
     try{await this.scale.connect(s.path,s.baudRate);this.log.info?.(`Balança conectada em ${s.path}.`);return true;}
     catch(e){this.log.warn?.(`Balança não conectada automaticamente (${s.path}): ${e.message}`);return false;}
   }
-  stop(){this.databases.stop();return this.backups.stop();}
+  async stop(){this.databases.stop();await this.sync.stop();return this.backups.stop();}
   // A restore replaces all commercial data: only with nothing on the scale (the shift is checked by the restore).
   assertRestoreAllowed(){if(!this.scale.idle())throw httpError(409,'Retire o produto da balança antes de restaurar.');}
   async overview(session){
     const b=this.backups.overview();const scale=this.scale.snapshot();
-    return {user:{username:session.username},version:this.version,database:this.databases.status(),
+    return {user:{username:session.username},version:this.version,database:this.databases.status(),sync:this.sync.status(),
       backup:{lastSuccess:b.lastSuccess,lastFailure:b.lastFailure,next:b.next,alerts:b.alerts},scale:{status:scale.status,mode:scale.mode},maintenance:this.maintenanceMessage};
   }
   async databaseInfo(){
-    const pending=this.vault.get('pendingDatabaseUrl');const m=await this.settings.migration();
+    const pending=this.vault.get('pendingDatabaseUrl');
     return {...this.databases.status(),schemaVersion:this.db.adapter.unavailable?null:await this.db.schemaVersion().catch(()=>null),
-      lastBackupAt:this.backups.status.lastSuccess?.at||null,pending:pending?{...describeUrl(pending),hasCa:!!this.vault.get('pendingDatabaseCa')}:null,migration:m,busy:this.migration.busy};
+      lastBackupAt:this.backups.status.lastSuccess?.at||null,pending:pending?{...describeUrl(pending),hasCa:!!this.vault.get('pendingDatabaseCa')}:null,
+      sync:this.sync.status(),converting:!!this.migration.converting,busy:this.migration.busy};
   }
   // Maintenance screen and the exported diagnostic: no passwords, no keys, no sales.
   async diagnostics({full=false}={}){
@@ -69,7 +73,7 @@ class AdminSystem {
       service:{status:'em execução',pid:process.pid,startedAt:STARTED,uptimeSec:Math.round(process.uptime()),memoryMb:Math.round(mem.rss/1048576),node:process.version,
         platform:`${os.type()} ${os.release()}`,supervised:!!process.env.PDV_LAUNCHER},
       scale:{status:scale.status,mode:scale.mode,port:hw?.path||null,lastError:scale.lastError||null,updatedAt:scale.updatedAt},
-      database:this.databases.status(),backup:{lastSuccessAt:b.lastSuccess?.at||null,lastFailure:b.lastFailure,next:b.next,alerts:b.alerts},
+      database:this.databases.status(),sync:this.sync.status(),backup:{lastSuccessAt:b.lastSuccess?.at||null,lastFailure:b.lastFailure,next:b.next,alerts:b.alerts},
       disk,paths:{home:this.config.home,data:this.config.paths.data,backups:this.config.paths.backups,logs:this.config.paths.logs},
       settings:{port:this.config.port,timezone:process.env.LUMINOR_TIMEZONE||'America/Sao_Paulo',vault:this.config.vault,envFile:this.config.envFile},
       logs:{errors:this.log.recent?.(20,'error')||[],recent:this.log.recent?.(full?300:60)||[]}};

@@ -10,9 +10,9 @@ const homes=[];
 test.after(()=>{for(const d of homes)fs.rmSync(d,{recursive:true,force:true});});
 function newHome(){const d=fs.mkdtempSync(path.join(os.tmpdir(),'luminor-app-'));homes.push(d);return d;}
 function quiet(){const lines=[];const f=k=>m=>lines.push(`${k} ${m}`);return {info:f('info'),warn:f('warn'),error:f('error'),lines,recent:()=>[]};}
-async function boot(home=newHome(),{env={},clock,hooks,connect}={}){
+async function boot(home=newHome(),{env={},clock,hooks,connect,syncTiming}={}){
   const config=loadConfig({PDV_HOME:home,PORT:'0',PDV_BACKUP_ENABLED:'false',PDV_VAULT:'arquivo',...env});const log=quiet();
-  const app=await start({config,log,clock,hooks,connect});
+  const app=await start({config,log,clock,hooks,connect,syncTiming});
   const base=`http://127.0.0.1:${app.server.address().port}`;const {token}=await (await fetch(base+'/api/session')).json();
   const t={app,home,config,log,base,token,cookie:null};
   const headers=(cookie,extra={})=>({'X-Luminor-Token':token,Origin:base,...(cookie?{Cookie:cookie}:{}),...extra});

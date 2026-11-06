@@ -30,8 +30,15 @@ class AdminSettingsService {
   // {provider, postgres:{host,port,database,user}, activatedAt}. Null until something was chosen in the Admin area.
   database(){return this.store.setting('database',null);}
   saveDatabase(v){return this.store.setSetting('database',v);}
-  migration(){return this.store.setting('migration',null);}
-  saveMigration(v){return this.store.setSetting('migration',v);}
+  // The cloud copy: {enabled, full, target:{host,port,database,user}, enabledAt, lastSyncAt, lastCheck}.
+  sync(){return this.store.setting('sync',null);}
+  saveSync(v){return this.store.setSetting('sync',v);}
+  // Identifies this computer as the owner of the cloud copy. Created once, kept across updates.
+  async deviceId(){
+    let id=await this.store.setting('deviceId',null);
+    if(!id){id=require('node:crypto').randomUUID();await this.store.setSetting('deviceId',id);}
+    return id;
+  }
   backupKeyConfirmedAt(){return this.store.setting('backupKeyConfirmedAt',null);}
   confirmBackupKey(){return this.store.setSetting('backupKeyConfirmedAt',new Date().toISOString());}
 }

@@ -12,7 +12,7 @@ const {Logger}=require('./logger');
 function startupError(config,e){
   try{const dir=config?.paths?.logs;if(dir){fs.mkdirSync(dir,{recursive:true});fs.appendFileSync(path.join(dir,'erros-inicializacao.log'),`[${new Date().toISOString()}] ${e.stack||e.message}\n`);}}catch(_){}
 }
-async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),listen=true,clock,hooks,connect,schedule=true}={}){
+async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),listen=true,clock,hooks,connect,schedule=true,syncTiming}={}){
   prepareHome(config);log=log||new Logger({dir:config.paths.logs});
   const vault=new SecretVault(config.vaultFile,{mode:config.vault});await vault.load();
   const adminStore=await AdminStore.open(config.adminDbPath);
@@ -22,18 +22,20 @@ async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),liste
   await importLegacySqlite({source:config.legacySqlite,target:config.sqlitePath,tmpDir:config.paths.tmp,log});
   const databases=new DatabaseManager({config,settings,vault,log,...(connect?{connect}:{})});
   const db=await databases.open();
-  const system=await AdminSystem.start({config,databases,adminStore,vault,settings,scale,log,clock,hooks,schedule});
+  const system=await AdminSystem.start({config,databases,adminStore,vault,settings,scale,log,clock,hooks,schedule,syncTiming});
   const server=createServer({db,scale,system});
   if(listen)await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,HOST,()=>{server.off('error',reject);resolve();});});
   const st=databases.status();
-  log.info(`Luminor PDV ${config.version} iniciado em http://${HOST}:${server.address()?.port||config.port} · banco ${st.provider==='sqlite'?'local (SQLite) '+st.sqlite.path:'na nuvem (PostgreSQL) '+(st.postgres?.host||'')} · dados em ${config.home}`);
+  log.info(`Luminor PDV ${config.version} iniciado em http://${HOST}:${server.address()?.port||config.port} · banco ${st.provider==='sqlite'?'local (SQLite) '+st.sqlite.path+(system.sync.enabled?' · cópia na nuvem ativa':''):'na nuvem (PostgreSQL, modo antigo) '+(st.postgres?.host||'')} · dados em ${config.home}`);
+  // An installation of the old cloud mode moves to the local database now, with the till already answering.
+  const converting=system.migration.convertLegacy().catch(()=>false);
   system.autoConnectScale();
   let stopping=null;
   const stop=()=>stopping||(stopping=(async()=>{
-    scale.disconnect();const closed=new Promise(r=>server.close(()=>r()));server.closeAllConnections?.();await closed;
+    await converting;scale.disconnect();const closed=new Promise(r=>server.close(()=>r()));server.closeAllConnections?.();await closed;
     await system.stop();await db.close();await adminStore.close();
   })());
-  return {config,db,databases,scale,system,server,adminStore,vault,log,stop};
+  return {config,db,databases,scale,system,server,adminStore,vault,log,stop,converting};
 }
 if(require.main===module){
   let config;

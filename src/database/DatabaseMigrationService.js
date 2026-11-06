@@ -1,15 +1,14 @@
 'use strict';
-// The Admin area's assistant for moving the sales to Supabase (PostgreSQL) and back, without editing code:
-//   1 test      connects to the address and password typed (TLS, certificate checked); the active database is not touched
+// The Admin area's assistant for the cloud copy on Supabase (PostgreSQL), without editing code. The till always sells
+// on the local database (works without internet); the cloud receives a copy kept up to date by src/sync/CloudSync.js.
+//   1 test      connects to the address and password typed (TLS, certificate checked); the local data is not touched
 //   2 prepare   creates the PDV's tables in the cloud database (it must be empty or already prepared)
-//   3 migrate   with the shift closed and sales paused: safety backup, copy of every row, mandatory reconciliation
-//   4 activate  only if the local data did not change since the reconciliation; the PDV then sells on the cloud database
-// Any failure leaves the local SQLite database as the active one, unchanged. Going back to local copies the cloud
-// data into a new local file (checked the same way), or, when the cloud is unreachable, reopens the local file as it
-// was at the migration.
+//   3 enable    turns the copy on for this computer; the whole database goes first, checked table by table
+// The old mode, in which the till sold straight on the cloud database, is converted at start (convertLegacy). While
+// that waits for the cloud, going back to local can still reopen the local file as it was (useLocal "manter").
 const crypto=require('node:crypto'),fs=require('node:fs'),path=require('node:path');
 const {SQLiteAdapter}=require('./adapters/SQLiteAdapter');const {migratePostgres}=require('./migrations/postgres');const {migrateSqlite}=require('./migrations/sqlite');
-const {exportLocalData}=require('./migration-tools/ExportLocalData');const {importToPostgres,isEmpty}=require('./migration-tools/ImportToPostgres');
+const {exportLocalData}=require('./migration-tools/ExportLocalData');const {isEmpty}=require('./migration-tools/ImportToPostgres');
 const {validateMigration}=require('./migration-tools/ValidateMigration');const {replaceData}=require('./migration-tools/copyData');
 const {describeUrl}=require('./DatabaseManager');const {stamp}=require('../backup/clock');const {moveDatabase,removeDatabase,moveFile}=require('../backup/RestoreService');
 const httpError=(status,message)=>Object.assign(Error(message),{status});
@@ -34,8 +33,8 @@ function friendlyPg(e){
   return m;
 }
 class DatabaseMigrationService {
-  constructor({config,manager,settings,vault,backups,setMaintenance=()=>{},audit=async()=>{},log=console}){
-    Object.assign(this,{config,manager,settings,vault,backups,setMaintenance,audit,log});this.busy=false;
+  constructor({config,manager,settings,vault,backups,sync,setMaintenance=()=>{},audit=async()=>{},log=console}){
+    Object.assign(this,{config,manager,settings,vault,backups,sync,setMaintenance,audit,log});this.busy=false;this.converting=null;
   }
   get store(){return this.manager.store;}
   async pending(){const url=this.vault.get('pendingDatabaseUrl');if(!url)throw httpError(409,'Teste a conexão com o banco na nuvem primeiro.');return {url,ca:this.vault.get('pendingDatabaseCa')||null};}
@@ -75,55 +74,58 @@ class DatabaseMigrationService {
       return {prepared:true,version:await pg.schemaVersion(),empty:e.empty};
     }finally{await pg.close();}
   }
-  // 3. Copy and reconciliation. The local database is only read.
-  async migrate(actor){
-    if(this.store.adapter.dialect!=='sqlite')throw httpError(409,'A migração parte do banco local (SQLite).');
-    if(await this.store.shift())throw httpError(409,'Feche o caixa antes de migrar os dados.');
+  // 3. Turns the cloud copy on for the database tested and prepared. The cloud must be empty, already this
+  // computer's copy, or replaced on purpose (replace: the person confirmed it). Nothing changes in the local data.
+  async enableSync(actor,{replace=false}={}){
+    if(this.store.adapter.dialect!=='sqlite')throw httpError(409,'Aguarde a passagem para o banco deste computador antes de ativar a cópia na nuvem.');
+    if(this.sync.enabled)throw httpError(409,'A cópia na nuvem já está ativa.');
     const c=await this.pending();const pg=await this.open(c);
     try{
-      // Only into a database the PDV prepared (step 2 refuses one holding someone else's tables).
-      if(!(await pg.schemaVersion()))throw httpError(409,'Prepare o banco na nuvem antes de migrar.');
-      return await this.exclusiveTask('Copiando os dados para o banco na nuvem. Aguarde…',async()=>{
-        const safety=await this.backups.create({kind:'seguranca',actor});
-        const result=await this.store.exclusive(async()=>{
-          if(await this.store.ctx.cash.shift())throw httpError(409,'Feche o caixa antes de migrar os dados.');
-          const local=this.store.adapter;const data=await exportLocalData(local);
-          await importToPostgres(pg,data);
-          const report=await validateMigration(local,pg);
-          return {report,fingerprint:await fingerprint(local)};
-        });
-        const target=describeUrl(c.url);
-        const record={at:new Date().toISOString(),ok:result.report.ok,fingerprint:result.fingerprint,target,safetyBackup:safety.name,
-          tables:result.report.tables.map(t=>({table:t.table,source:t.source,target:t.target,ok:t.ok})),totals:result.report.totals.filter(t=>!t.ok)};
-        await this.settings.saveMigration(record);
-        await this.audit({username:actor?.username,action:'banco_migrado',ok:record.ok,detail:{host:target?.host,tabelas:record.tables.length,diferencas:record.tables.filter(t=>!t.ok).length+record.totals.length}});
-        if(!record.ok)throw Object.assign(httpError(409,'A conferência encontrou diferenças. O banco local continua ativo. Esvazie o banco na nuvem e migre de novo.'),{report:record});
-        return record;
-      });
-    }catch(e){if(!e.status)e.status=500;if(!e.report)e.message=`Migração não concluída; o banco local continua ativo e sem alterações. ${friendlyPg(e)}`;throw e;}
+      if(!(await pg.schemaVersion()))throw httpError(409,'Prepare o banco na nuvem antes de ativar a cópia.');
+      await this.sync.claim(pg,{replace:!!replace});
+    }catch(e){if(!e.status)throw httpError(502,friendlyPg(e));throw e;}
     finally{await pg.close();}
+    await this.vault.update({databaseUrl:c.url,databaseCa:c.ca,pendingDatabaseUrl:null,pendingDatabaseCa:null});
+    const target=describeUrl(c.url);await this.sync.enable({target});
+    await this.audit({username:actor?.username,action:'nuvem_copia_ativada',detail:{host:target?.host,substituiu:!!replace}});
+    return this.sync.status();
   }
-  // 4. Switches the sales to the cloud database.
-  async activate(actor){
-    if(this.store.adapter.dialect!=='sqlite')throw httpError(409,'O banco na nuvem já está ativo.');
-    const m=await this.settings.migration();const c=await this.pending();
-    if(!m?.ok)throw httpError(409,'Migre e confira os dados antes de ativar o banco na nuvem.');
-    if(JSON.stringify(m.target)!==JSON.stringify(describeUrl(c.url)))throw httpError(409,'O banco testado não é o mesmo que recebeu a migração. Migre de novo.');
-    return this.exclusiveTask('Ativando o banco na nuvem. Aguarde…',async()=>{
-      const pg=await this.open(c);let switched=false;
+  // The local data stays as it is; the cloud keeps what it had received.
+  async disableSync(actor){
+    if(!this.sync.enabled)throw httpError(409,'A cópia na nuvem não está ativa.');
+    const host=this.sync.target?.host;await this.sync.disable();
+    await this.vault.update({databaseUrl:null,databaseCa:null});
+    await this.audit({username:actor?.username,action:'nuvem_copia_desativada',detail:{host}});
+    return this.sync.status();
+  }
+  async syncNow(actor){const r=await this.sync.syncNow();await this.audit({username:actor?.username,action:'nuvem_sincronizada'});return r;}
+  async resendAll(actor){const r=await this.sync.resend();await this.audit({username:actor?.username,action:'nuvem_reenvio_pedido'});return r;}
+  // The old cloud mode (the till selling straight on the cloud database) becomes the local database plus the cloud
+  // copy: the cloud data is copied here and checked (as "back to local", with a safety backup first), then the copy
+  // is turned on and this computer takes the cloud database over at its first send (it holds the same data).
+  // Runs at start and when the cloud comes back; while the cloud is out of reach nothing changes, and a copy that
+  // fails leaves the PDV as it was, to be tried again at the next start.
+  convertLegacy(){
+    const a=this.store.adapter;if(a.dialect!=='postgres'||a.unavailable||this.busy)return Promise.resolve(false);
+    if(this.converting)return this.converting;
+    this.converting=(async()=>{
+      const c=this.manager.active;const actor={username:'sistema'};const target=describeUrl(c.url);
       try{
-        await this.store.exclusive(async()=>{
-          if(await this.store.ctx.cash.shift())throw httpError(409,'Feche o caixa antes de trocar o banco de dados.');
-          if(await fingerprint(this.store.adapter)!==m.fingerprint)throw httpError(409,'Houve vendas ou alterações no banco local depois da migração. Esvazie o banco na nuvem e migre de novo.');
-          const report=await validateMigration(this.store.adapter,pg);if(!report.ok)throw httpError(409,'Os dados na nuvem não conferem mais com os locais. Migre de novo.');
-          await this.manager.switchTo(pg,{provider:'postgres',url:c.url,ca:c.ca,source:'admin'});switched=true;
-        });
-        await this.vault.update({databaseUrl:c.url,databaseCa:c.ca});
-        await this.settings.saveDatabase({provider:'postgres',postgres:describeUrl(c.url),activatedAt:new Date().toISOString()});
-        await this.audit({username:actor?.username,action:'banco_ativado',detail:{provider:'postgres',host:describeUrl(c.url)?.host}});
-        return this.manager.status();
-      }catch(e){if(!switched)await pg.close();throw e;}
-    });
+        const ca=c.ca||(c.caFile?fs.readFileSync(c.caFile,'utf8'):null);
+        this.log.info?.('Passando para o modo offline: as vendas da nuvem serão copiadas para este computador.');
+        await this.useLocal(actor,{mode:'copiar'});
+        await this.vault.update({databaseUrl:c.url,databaseCa:ca});
+        await this.sync.enable({target,claim:true});
+        await this.audit({username:'sistema',action:'modo_offline_ativado',detail:{host:target?.host}});
+        this.log.info?.('Modo offline ativado: as vendas são gravadas neste computador e enviadas para a nuvem automaticamente.');
+        return true;
+      }catch(e){
+        this.log.error?.(`Passagem para o modo offline não concluída (o PDV continua como estava): ${e.message}`);
+        await this.audit({username:'sistema',action:'modo_offline_falhou',ok:false,detail:{host:target?.host,erro:e.message}});
+        throw e;
+      }finally{this.converting=null;}
+    })();
+    return this.converting;
   }
   // Back to the local database. mode "copiar": the cloud data goes into a new local file (reconciled); "manter": the
   // local file as it was at the migration (for when the cloud cannot be reached; later cloud sales are not in it).
