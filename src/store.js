@@ -28,7 +28,7 @@ class PdvStore {
   }
   attach(adapter){
     this.adapter=adapter;this.ctx.db=adapter;this.ctx.r=repositories(adapter);
-    this.ctx.tx=fn=>adapter.transaction(q=>fn(repositories(q)));
+    this.ctx.tx=fn=>adapter.transaction(q=>fn(repositories(q)));this.stateCache=null;
   }
   // Brings the schema up to date (existing rows are kept), fills the default settings and brings back open sales.
   static async open(adapter){const store=new PdvStore(adapter);await store.init();return store;}
@@ -39,14 +39,28 @@ class PdvStore {
   exclusive(fn){return this.lock.run(fn);}
   // Inside exclusive(): swaps the database under the same store object (after a restore).
   async replaceAdapter(adapter){await this.adapter.close();this.attach(adapter);await this.init();}
-  // cart/cartTotalCents are the active open sale: the one the scale is weighing for.
+  // What the till screen shows; cart/cartTotalCents are the active open sale (the one the scale is weighing for).
+  // The screen asks for it almost every second. It depends only on the database, so it is read again only after
+  // something was written (the adapter counts every statement that may write); in between, the answer costs no query
+  // at all. The scale reading is live and never kept.
   getState(scale){
     return this.lock.run(async()=>{
-      const {sales,config,cash,stock,employees}=this.ctx;const activeSaleId=await sales.activeSaleId();const active=activeSaleId?await sales.getDraftSale(activeSaleId):null;
-      return {config:await config.getConfig(),cash:await cash.cashSummary(),openSales:await sales.listDraftSales(),activeSaleId,
-        activeSale:active&&{id:active.id,label:active.label,revision:active.revision,created_at:active.created_at,updated_at:active.updated_at,operator_id:active.operator_id},
-        cart:active?active.items:[],cartTotalCents:active?active.totalCents:0,products:await stock.listProducts(),employees:await employees.listEmployees(),operator:await employees.operator(),scale:scale.snapshot()};
+      const adapter=this.adapter,writes=adapter.writes;const c=this.stateCache;
+      let state=c&&c.adapter===adapter&&writes!==undefined&&c.writes===writes?c.state:null;
+      if(!state){state=await this.readState();if(adapter.writes===writes&&writes!==undefined)this.stateCache={adapter,writes,state};}
+      return {...state,scale:scale.snapshot()};
     });
+  }
+  // Independent reads go out together: over the internet each query is a round trip, and waiting for one before
+  // sending the next would add them all up.
+  async readState(){
+    const {sales,config,cash,stock,employees}=this.ctx;
+    const activeSaleId=await sales.activeSaleId();
+    const [active,cfg,cashSummary,openSales,products,team,operator]=await Promise.all([activeSaleId?sales.getDraftSale(activeSaleId):null,
+      config.getConfig(),cash.cashSummary(),sales.listDraftSales(),stock.listProducts(),employees.listEmployees(),employees.operator()]);
+    return {config:cfg,cash:cashSummary,openSales,activeSaleId,
+      activeSale:active&&{id:active.id,label:active.label,revision:active.revision,created_at:active.created_at,updated_at:active.updated_at,operator_id:active.operator_id},
+      cart:active?active.items:[],cartTotalCents:active?active.totalCents:0,products,employees:team,operator};
   }
   close(){return this.lock.run(()=>this.adapter.close());}
 }

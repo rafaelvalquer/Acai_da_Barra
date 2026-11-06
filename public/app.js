@@ -219,9 +219,20 @@ function systemBanner(e){
  const offline=!e.status;$('system-banner-title').textContent=offline?'Sem comunicação com o Luminor PDV':e.status===503&&/Restaur|Copiando|Ativando|Voltando/.test(e.message)?'Aguarde um instante':'Vendas pausadas';
  $('system-banner-text').textContent=offline?'Verifique se o programa está aberto neste computador. A tela volta sozinha quando ele responder.':e.message;
 }
-async function refresh(){try{state=await get('/api/state');systemBanner(null);render();}catch(e){systemBanner(e);}}
+// One refresh at a time: with a slow database (cloud), a new request every 850 ms on top of the unanswered ones would
+// pile up on the server and make every sale wait behind them. A refresh asked while one is on its way (for example
+// right after a sale) runs once more when it ends, so the screen never stays with data from before the change.
+let refreshing=null,refreshAgain=null;
+async function loadState(){try{state=await get('/api/state');systemBanner(null);render();}catch(e){systemBanner(e);}}
+function refresh(){
+ if(!refreshing){refreshing=loadState().finally(()=>{refreshing=null;});return refreshing;}
+ if(!refreshAgain)refreshAgain=refreshing.then(()=>{refreshAgain=null;return refresh();});
+ return refreshAgain;
+}
+// The next automatic refresh is scheduled only after the previous one answered.
+async function poll(){await refresh();setTimeout(poll,document.hidden?3000:850);}
 function tab(name){activeTab=name;document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('main section.panel').forEach(el=>el.classList.toggle('hidden',el.id!==name));window.scrollTo({top:0});if(name==='relatorios')renderReports();if(name==='historico')renderHistory();if(name==='configuracoes')window.LuminorAdmin?.open();}
-async function boot(){try{TOKEN=(await get('/api/session')).token;await refresh();}catch(e){flash(e.message,true);}setInterval(refresh,850);
+async function boot(){try{TOKEN=(await get('/api/session')).token;}catch(e){flash(e.message,true);}await poll();
  $('hist-from').value=$('hist-to').value=localToday();
  document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.tab)));
  document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(!b)return;b.closest('dialog')?.close();tab(b.dataset.goto);(b.dataset.goto==='caixa'?$('opening-amount'):b.dataset.goto==='funcionarios'?$('employee-name'):null)?.focus();});

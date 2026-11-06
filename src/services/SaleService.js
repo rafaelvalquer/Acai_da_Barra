@@ -2,6 +2,8 @@
 const {randomUUID}=require('node:crypto');
 const {readMoney,readWeight,calcTotal}=require('../protocol');
 const {assert,integer,now,pad2,sameName}=require('./util');
+// Value of a Promise.allSettled entry, or its error: reads sent together still fail in the order they are checked.
+const settled=x=>{if(x.status==='rejected')throw x.reason;return x.value;};
 const itemView=r=>({key:r.id,kind:r.kind,productId:r.product_id??undefined,label:r.label,grams:r.grams??undefined,quantity:r.quantity??undefined,unitCents:r.unit_cents,totalCents:r.total_cents,manual:!!r.manual,captureId:r.scale_capture_id??undefined});
 // Open sales (one per customer being served, each with its own items until paid or discarded), checkout,
 // cancellation and correction. Methods taking `t` run inside a transaction held by the caller.
@@ -9,7 +11,9 @@ class SaleService {
   constructor(ctx){this.ctx=ctx;}
   async draftRow(id,r=this.ctx.r){return (await r.openSales.find(id))||null;}
   async requireOpenSale(id,r=this.ctx.r){
-    const shift=await this.ctx.cash.shift(r);assert(shift,'Abra o caixa primeiro');const d=await this.draftRow(id,r);assert(d,'Venda não encontrada');
+    // Both reads go out together (one round trip on a cloud database); the checks keep their order.
+    const [s,x]=await Promise.allSettled([this.ctx.cash.shift(r),this.draftRow(id,r)]);
+    const shift=settled(s);assert(shift,'Abra o caixa primeiro');const d=settled(x);assert(d,'Venda não encontrada');
     assert(d.status==='open',d.status==='completed'?`A venda ${d.label} já foi cobrada`:`A venda ${d.label} foi descartada`);
     assert(shift.id===d.shift_id,'Esta venda não pertence ao caixa aberto');return d;
   }
@@ -44,7 +48,7 @@ class SaleService {
   }
   async activeSaleId(r=this.ctx.r){return (await this.ctx.cash.shift(r))?.active_draft_id||null;}
   async listDraftSales(r=this.ctx.r){const shift=await this.ctx.cash.shift(r);return shift?r.openSales.listOpen(shift.id):[];}
-  async getDraftSale(id,r=this.ctx.r){const d=await this.draftRow(id,r);assert(d,'Venda não encontrada');const items=await this.draftItems(d.id,r);return {...d,items,totalCents:items.reduce((s,x)=>s+x.totalCents,0)};}
+  async getDraftSale(id,r=this.ctx.r){const [d,items]=await Promise.all([this.draftRow(id,r),this.draftItems(id,r)]);assert(d,'Venda não encontrada');return {...d,items,totalCents:items.reduce((s,x)=>s+x.totalCents,0)};}
   async createDraftSale(){const shift=await this.ctx.cash.shift();assert(shift,'Abra o caixa antes da venda');return this.getDraftSale(await this.ctx.tx(t=>this.insertDraft(t,shift)));}
   async selectDraftSale(id){const d=await this.requireOpenSale(id);await this.ctx.r.cash.setActiveDraft(d.shift_id,d.id);return this.getDraftSale(d.id);}
   async renameDraftSale(id,label){
@@ -74,9 +78,11 @@ class SaleService {
   // captureId identifies one scale cycle: offered again (retry, reconnection, repeated request), it is stored only once.
   async addWeighed(saleId,grams,captureId=null){
     const d=await this.requireOpenSale(saleId);const g=integer(grams,'Peso',1,15000);
-    if(captureId!==null){assert(/^[0-9a-zA-Z-]{8,80}$/.test(String(captureId)),'Identificador de pesagem inválido');
-      if(await this.ctx.r.openSales.captureExists(String(captureId)))return {...await this.getDraftSale(d.id),duplicate:true};}
-    const price=(await this.ctx.config.getConfig()).priceKgCents;
+    if(captureId!==null)assert(/^[0-9a-zA-Z-]{8,80}$/.test(String(captureId)),'Identificador de pesagem inválido');
+    // The duplicate check and the price per kg are read together.
+    const [seen,config]=await Promise.all([captureId!==null?this.ctx.r.openSales.captureExists(String(captureId)):null,this.ctx.config.getConfig()]);
+    if(seen)return {...await this.getDraftSale(d.id),duplicate:true};
+    const price=config.priceKgCents;
     await this.ctx.tx(t=>this.insertItem(t,d.id,{kind:'weight',grams:g,label:'Açaí por peso',unitCents:price,totalCents:calcTotal(g,price),captureId:captureId===null?null:String(captureId)}));
     return {...await this.getDraftSale(d.id),duplicate:false};
   }
@@ -123,14 +129,20 @@ class SaleService {
   // Pays one open sale. The finished sale, its items, the stock and the end of the open sale are one transaction:
   // on any failure nothing is written and the open sale keeps its items. Asking twice returns the first sale.
   async checkoutDraftSale(saleId,method,requestId,received,revision){
-    const {ctx}=this;assert(['cash','pix','debit','credit'].includes(method),'Forma de pagamento inválida');const shift=await ctx.cash.shift();assert(shift,'Abra o caixa primeiro');
-    const uuid=String(requestId||'');assert(/^[0-9a-zA-Z-]{12,80}$/.test(uuid),'Identificador de venda inválido');
-    const again=(await ctx.r.sales.findByUuid(uuid))||(await ctx.r.sales.findByDraft(String(saleId??'')));
+    const {ctx}=this;assert(['cash','pix','debit','credit'].includes(method),'Forma de pagamento inválida');
+    const uuid=String(requestId||'');
+    // Reads that do not depend on each other go out together (on a cloud database each one is a round trip); the
+    // checks and their messages keep the order they always had.
+    const [s,byUuid,byDraft]=await Promise.allSettled([ctx.cash.shift(),ctx.r.sales.findByUuid(uuid),ctx.r.sales.findByDraft(String(saleId??''))]);
+    const shift=settled(s);assert(shift,'Abra o caixa primeiro');
+    assert(/^[0-9a-zA-Z-]{12,80}$/.test(uuid),'Identificador de venda inválido');
+    const again=settled(byUuid)||settled(byDraft);
     if(again)return {sale:again,duplicate:true,activeSaleId:await this.activeSaleId()};
-    const d=await this.requireOpenSale(saleId);
+    const [open,operator]=await Promise.allSettled([this.requireOpenSale(saleId),ctx.employees.requireOperator()]);
+    const d=settled(open);
     // The total the operator confirmed must still be the total: a weighing that arrived meanwhile stops the charge.
     if(revision!==undefined&&revision!==null&&revision!=='')assert(integer(revision,'Revisão',0,1e9)===d.revision,`A venda ${d.label} mudou depois da conferência. Confira o total e cobre de novo.`);
-    const items=await this.draftItems(d.id);assert(items.length>0,`A venda ${d.label} não tem itens`);const op=await ctx.employees.requireOperator();
+    const items=await this.draftItems(d.id);assert(items.length>0,`A venda ${d.label} não tem itens`);const op=settled(operator);
     const total=items.reduce((s,x)=>s+x.totalCents,0);assert(total>0,'Venda com total inválido');
     // Amount handed over by the customer, optional and only for cash; the drawer still counts the sale total.
     let receivedCents=null;
@@ -143,7 +155,8 @@ class SaleService {
       if((await t.cash.openShift()).active_draft_id===d.id)await this.chooseActive(t,shift);
       return id;
     });
-    return {sale:await ctx.r.sales.findById(id),duplicate:false,activeSaleId:await this.activeSaleId()};
+    const [sale,activeSaleId]=await Promise.all([ctx.r.sales.findById(id),this.activeSaleId()]);
+    return {sale,duplicate:false,activeSaleId};
   }
   async cancelCheck(id,reason){
     const n=integer(id,'Venda',1);const why=String(reason||'').trim();assert(why.length>=3&&why.length<=180,'Informe o motivo do cancelamento');

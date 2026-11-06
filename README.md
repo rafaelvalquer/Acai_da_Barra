@@ -146,11 +146,13 @@ Fica em **Configurações** (no celular, "Ajustes"), no cartão **Administraçã
 
 O padrão é o banco local (SQLite), que não depende de internet. Para usar o Supabase:
 
-1. No Supabase, crie o projeto e copie o endereço em **Connect › Session pooler** (funciona em internet só IPv4, como a da maioria das lojas).
+1. No Supabase, crie o projeto na região **South America (São Paulo)** e copie o endereço em **Connect › Session pooler** (funciona em internet só IPv4, como a da maioria das lojas). A região pesa muito: cada consulta atravessa a internet, e daqui ao Supabase em São Paulo a ida e volta medida foi de ~13 ms, contra 200 a 470 ms até um projeto nos EUA (cobrar uma venda: ~0,45 s contra ~5 s). A região de um projeto não muda depois de criado.
 2. Em **Banco de dados**, cole o endereço, digite a senha do banco e toque em **Testar conexão**. O endereço e a senha ficam no cofre do Windows (`config\cofre.dat`, protegido por DPAPI) e nunca voltam para o navegador.
 3. **Preparar** cria as tabelas (o banco precisa estar vazio; um banco com outras tabelas é recusado).
 4. **Migrar** copia os dados locais e confere tabela por tabela e os totais. O banco local não é alterado.
 5. **Ativar** passa o PDV a usar a nuvem. Se houver vendas novas no banco local depois da migração, a ativação é recusada (migre de novo).
+
+Para a internet pesar o mínimo: a tela do caixa só relê o banco depois de alguma alteração (enquanto nada muda, a atualização automática não faz consulta), pede a próxima atualização só depois que a anterior respondeu, as leituras independentes saem juntas e as conexões ficam abertas (com limite de 30 s por consulta, para o caixa nunca ficar travado).
 
 Se a nuvem ficar fora do ar, o caixa mostra o aviso, a administração continua acessível e **Voltar para o banco local** oferece "copiar os dados da nuvem" (quando ela responde) ou "manter o banco local como estava". Sem internet, nada é perdido: o banco local continua no computador. Pelo terminal também há `npm run migrar:postgres` (ensaio num PostgreSQL temporário) e `npm run migrar:postgres -- --confirmar`.
 
@@ -285,7 +287,7 @@ npm test
 npm run test:postgres
 ```
 
-`npm test` roda 89 testes (`node --test`), sem internet e sem tocar na pasta de dados real: cada teste usa uma pasta temporária. `npm run test:postgres` roda os testes das regras de venda (vendas, vendas abertas, balança, API do caixa) num **PostgreSQL de verdade dentro do processo** (PGlite), para garantir que o Supabase se comporta igual ao SQLite; os testes que dependem de arquivos locais (backup, administração) ficam de fora nesse modo.
+`npm test` roda 94 testes (`node --test`), sem internet e sem tocar na pasta de dados real: cada teste usa uma pasta temporária. `npm run test:postgres` roda os testes das regras de venda (vendas, vendas abertas, balança, API do caixa) num **PostgreSQL de verdade dentro do processo** (PGlite), para garantir que o Supabase se comporta igual ao SQLite; os testes que dependem de arquivos locais (backup, administração) ficam de fora nesse modo.
 
 - `tests/protocol.test.js`: quadros Prt5 (estável, instável, negativo, sobrecarga), quadros fragmentados e arredondamento em reais.
 - `tests/scale.test.js`: **porta serial simulada** que responde ao `ENQ` como a balança. O peso estável entra na venda **automaticamente e uma única vez**; o mesmo copo no prato não duplica; só relança depois de voltar a zero; leituras instáveis, negativas, de sobrecarga ou oscilando nunca viram item; quadros quebrados em vários pedaços funcionam; com o caixa fechado ou o lançamento automático desligado o peso espera na balança; porta desconectada fica offline e o lançamento manual continua funcionando.
@@ -296,6 +298,7 @@ npm run test:postgres
 - `tests/backup.test.js` (backup e restauração, casos D01 a D16): backup com o caixa aberto consistente e sem parar as vendas (D01); vendas abertas voltam iguais depois de restaurar (D02); instalação vazia só restaura com a chave de recuperação e a senha (D03); arquivo corrompido, truncado, de versão mais nova ou com estrutura estranha recusado sem mudar nada (D04, D05); restauração recusada com caixa aberto ou peso na balança (D06); queda de energia durante o backup ou no meio da restauração desfeita no próximo início (D07, D08); falha no meio da restauração devolve o banco anterior (D08); reinício e atualização mantêm tudo, e o banco da pasta antiga do programa é copiado uma vez, nunca alterado (D09, D10); backup perdido com o computador desligado feito ao ligar, uma vez só (D11); disco cheio com aviso e vendas seguindo (D12); rotas protegidas: sem sessão, sessão de troca de senha, sem token, outro site e nomes de arquivo maliciosos (D13); cópia para pendrive e aviso quando ele falta (D14); ida e volta comparando todas as tabelas (D16); retenção 7/4/3, agenda no horário de São Paulo e arquivo autenticado (chave errada e byte alterado recusados).
 - `tests/admin-database.test.js` (nuvem, com um PostgreSQL simulado): migrar, ativar, vender na nuvem, backup da nuvem restaurado num banco local e volta ao local copiando os dados; nuvem fora do ar com a administração acessível e volta ao local mantendo o banco; endereço inválido; migração interrompida; vendas locais depois da migração bloqueando a ativação; banco com outras tabelas recusado.
 - `tests/launcher.test.js` (inicializador): reinicia o PDV depois de falhas, encerra de forma limpa quando pedido, descarta um pedido de parada antigo e espera mais quando a configuração é inválida.
+- `tests/state-cache.test.js` (tela do caixa): sem nada novo no banco a atualização não faz consulta; qualquer gravação (venda, item, funcionário, produto, ajuste, alteração direta no banco) aparece na atualização seguinte; operação recusada não deixa dado velho; o peso da balança é sempre o do momento.
 
 O instalador (`instalador\*.ps1`) não tem teste automatizado: os scripts foram conferidos pelo analisador do PowerShell e as partes sem efeito no sistema (cópia, carregamento da versão nova, backup antes de atualizar, inicializador com parada limpa e reinício depois de queda) foram executadas numa pasta temporária. Criar a tarefa do Windows e ajustar as permissões da pasta deve ser ensaiado no computador da loja.
 
