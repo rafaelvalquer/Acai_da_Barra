@@ -1,5 +1,5 @@
 'use strict';
-let TOKEN='',state={},activeTab='vendas',currentReport=null,currentSale=null,seenAlert='',cashControlKey=null,payMethod='pix',manualMode='weight',checkingOut=false,reportPeriod='day',reportDate='';
+let TOKEN='',state={},activeTab='vendas',currentReport=null,currentSale=null,seenAlert='',cashControlKey=null,payMethod='pix',manualMode='weight',checkingOut=false,reportPeriod='day',reportDate='',lastActive=null,renameId=null,transferFrom=null,transferKey=null,transferTo=null;
 const $=id=>document.getElementById(id);
 const money=c=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100);
 const signed=c=>(c>0?'+ ':c<0?'− ':'')+money(Math.abs(c||0));
@@ -67,6 +67,7 @@ function render(){
  $('operator-name').textContent=op?op.name:'Selecionar';$('operator-btn').classList.toggle('warn',!op);
  paint('operator-avatar',op?safe(initials(op.name)):icon('user'));
  $('closed-banner').classList.toggle('hidden',!!shift);
+ renderSales();
  // Without readings from the scale the manual entry takes the main spot, so service never stops.
  const scaleDown=s.mode==='offline'||['offline','waiting','invalid'].includes(s.status);
  $('weight-actions').classList.toggle('attention',scaleDown);
@@ -77,16 +78,55 @@ function render(){
  $('weight-price').textContent=money(Math.round((s.grams||0)*c.priceKgCents/1000));
  if(document.activeElement!==$('price-kg'))$('price-kg').value=price(c.priceKgCents);
  $('auto-capture').checked=c.autoCapture;
- $('btn-capture').disabled=!shift||!s.ready;$('btn-manual').disabled=!shift;
- paint('quick-products',state.products.length?state.products.map((p,i)=>`<button class="product-button ${TONES[i%4]}" data-add="${p.id}" ${p.stock<1||!shift?'disabled':''}><span class="pb-plus">${icon('plus')}</span><span class="pb-name">${safe(p.name)}</span><small>${p.stock<1?'Sem estoque':p.stock+' em estoque'}</small><strong>${money(p.price_cents)}</strong></button>`).join(''):emptyState('box','Nenhum produto avulso','Cadastre itens como água e refrigerante na aba Produtos.'));
+ $('btn-capture').disabled=!shift||!s.ready||!state.activeSale;$('btn-manual').disabled=!shift||!state.activeSale;
+ const pend=state.pendingCaptures||[];$('capture-pending').classList.toggle('hidden',!pend.length);
+ paint('capture-pending',pend.map(p=>`<div class="pending-row">${icon('alert')}<div class="grow"><strong>Pesagem de ${weight(p.grams)} kg não foi gravada${p.label?` em ${safe(p.label)}`:''}</strong><small>${safe(p.error)}</small></div><button type="button" class="accent" data-retry="${safe(p.captureId)}">Tentar de novo</button><button type="button" class="secondary" data-drop="${safe(p.captureId)}">Descartar</button></div>`).join(''));
+ paint('quick-products',state.products.length?state.products.map((p,i)=>`<button class="product-button ${TONES[i%4]}" data-add="${p.id}" ${p.available<1||!shift?'disabled':''}><span class="pb-plus">${icon('plus')}</span><span class="pb-name">${safe(p.name)}</span><small>${p.available>0?plural(p.available,'disponível','disponíveis'):p.stock>0?'Reservado em vendas abertas':'Sem estoque'}</small><strong>${money(p.price_cents)}</strong></button>`).join(''):emptyState('box','Nenhum produto avulso','Cadastre itens como água e refrigerante na aba Produtos.'));
  const n=state.cart.length;$('cart-count').textContent=plural(n,'item','itens');$('cart-total').textContent=money(state.cartTotalCents);
- paint('cart-items',n?state.cart.map(p=>`<div class="cart-item"><span class="ci-icon ${p.manual?'is-manual':p.kind==='weight'?'is-weight':''}">${icon(p.manual?'keyboard':p.kind==='unit'?'box':'cup')}</span><div class="ci-main"><strong>${safe(p.label)}</strong><small>${itemLine(p.kind,p.grams,p.quantity,p.unitCents)}</small></div>${p.kind==='unit'?`<div class="qty"><button data-qty="${safe(p.key)}" data-to="${p.quantity-1}" ${p.quantity<2?'disabled':''} aria-label="Diminuir quantidade">${icon('minus')}</button><span>${p.quantity}</span><button data-qty="${safe(p.key)}" data-to="${p.quantity+1}" aria-label="Aumentar quantidade">${icon('plus')}</button></div>`:''}<span class="ci-total">${money(p.totalCents)}</span><button class="remove" data-remove="${safe(p.key)}" aria-label="Remover ${safe(p.label)}">${icon('x')}</button></div>`).join(''):emptyState('cup','Nenhum item ainda','Coloque o copo na balança ou toque em um produto avulso.'));
+ if(!renameId)$('sale-name-text').textContent=state.activeSale?.label||'—';$('sale-name').disabled=!state.activeSale;
+ paint('cart-items',n?state.cart.map(p=>`<div class="cart-item"><span class="ci-icon ${p.manual?'is-manual':p.kind==='weight'?'is-weight':''}">${icon(p.manual?'keyboard':p.kind==='unit'?'box':'cup')}</span><div class="ci-main"><strong>${safe(p.label)}</strong><small>${itemLine(p.kind,p.grams,p.quantity,p.unitCents)}</small></div>${p.kind==='unit'?`<div class="qty"><button data-qty="${safe(p.key)}" data-to="${p.quantity-1}" ${p.quantity<2?'disabled':''} aria-label="Diminuir quantidade">${icon('minus')}</button><span>${p.quantity}</span><button data-qty="${safe(p.key)}" data-to="${p.quantity+1}" aria-label="Aumentar quantidade">${icon('plus')}</button></div>`:''}<span class="ci-total">${money(p.totalCents)}</span><div class="ci-actions"><button class="move" data-move="${safe(p.key)}" aria-label="Transferir ${safe(p.label)} para outra venda" title="Transferir para outra venda">${icon('swap')}</button><button class="remove" data-remove="${safe(p.key)}" aria-label="Remover ${safe(p.label)}" title="Remover">${icon('x')}</button></div></div>`).join(''):emptyState('cup','Nenhum item ainda','Coloque o copo na balança ou toque em um produto avulso.'));
  const cashBlocked=renderCashBox();
- $('btn-checkout').disabled=!shift||n===0||checkingOut||cashBlocked;$('btn-clear').disabled=n===0;
+ $('btn-checkout').disabled=!shift||n===0||checkingOut||cashBlocked;$('checkout-label').textContent=n?`Cobrar esta venda · ${money(state.cartTotalCents)}`:'Cobrar esta venda';
+ $('btn-discard').disabled=!state.activeSale||(n===0&&state.openSales.length<2);
  renderCash();renderProducts();renderEmployees();
  if($('operator-dialog').open)renderOperatorOptions();
  if(s.lastError&&s.lastError!==seenAlert){seenAlert=s.lastError;flash(s.lastError,true);}
  if(state.lastAutoError&&state.lastAutoError!==seenAlert){seenAlert=state.lastAutoError;flash(state.lastAutoError,true);}
+}
+// The tab bar: every open sale with its total. The active one is where the scale weighs, and only the operator
+// changes it (after a sale is paid or discarded the server moves to an empty sale, never to another customer's).
+function renderSales(){
+ const shift=state.cash.shift,sales=state.openSales||[],active=state.activeSaleId,locked=!state.canSwitch;
+ $('sales-bar').classList.toggle('hidden',!shift);$('switch-hint').classList.toggle('hidden',!shift||!locked||sales.length<2);
+ $('weigh-target').classList.toggle('hidden',!state.activeSale);$('weigh-target-name').textContent=state.activeSale?.label||'—';
+ const bar=$('sale-tabs'),left=bar.scrollLeft,focused=bar.contains(document.activeElement)?document.activeElement.dataset.sale:null;
+ paint('sale-tabs',sales.map(d=>{const on=d.id===active;return `<button type="button" role="tab" class="sale-tab${on?' active':''}${locked&&!on?' locked':''}" data-sale="${d.id}" aria-selected="${on}" tabindex="${on?0:-1}" title="${on?'Venda selecionada · clique para renomear':locked?'Retire o produto da balança para trocar de venda':'Selecionar esta venda'}">${on?icon('scale'):''}<span class="st-name">${safe(d.label)}</span><span class="st-total">${money(d.total_cents)}</span></button>`;}).join(''));
+ // Repaints keep the bar's scroll position and the keyboard focus.
+ bar.scrollLeft=left;if(focused&&!bar.contains(document.activeElement))bar.querySelector(`[data-sale="${focused}"]`)?.focus();
+ if(active!==lastActive){
+  // Another customer: an amount typed for the previous one no longer applies.
+  if(lastActive!==null)$('cash-received').value='';
+  lastActive=active;finishRename(false);
+  const on=bar.querySelector('.sale-tab.active');if(on&&(on.offsetLeft<bar.scrollLeft||on.offsetLeft+on.offsetWidth>bar.scrollLeft+bar.clientWidth))bar.scrollLeft=on.offsetLeft-16;
+ }
+}
+function selectSale(id){
+ if(id===state.activeSaleId)return startRename();
+ if(!state.canSwitch)return flash('Retire o produto da balança para trocar de venda.',true);
+ return run('/api/open-sales/select',{saleId:id});
+}
+function startRename(){const sale=state.activeSale;if(!sale)return;renameId=sale.id;const input=$('sale-name-input');input.value=sale.label;$('sale-name').classList.add('hidden');input.classList.remove('hidden');input.focus();input.select();}
+async function finishRename(save){
+ if(!renameId)return;const id=renameId,input=$('sale-name-input'),name=input.value.trim();renameId=null;
+ input.classList.add('hidden');$('sale-name').classList.remove('hidden');
+ const sale=state.openSales.find(d=>d.id===id);if(save&&sale&&name&&name!==sale.label)await run('/api/open-sales/rename',{saleId:id,label:name},r=>flash(`Venda renomeada: ${r.label}`));
+}
+function openTransfer(key){
+ const item=state.cart.find(x=>x.key===key),from=state.activeSale;if(!item||!from)return;transferFrom=from.id;transferKey=key;transferTo=null;
+ $('transfer-item').textContent=`${item.label} · ${itemLine(item.kind,item.grams,item.quantity,item.unitCents)} · ${money(item.totalCents)}. Está em ${from.label}.`;
+ $('transfer-options').innerHTML=[...state.openSales.filter(d=>d.id!==from.id).map(d=>`<button type="button" role="radio" aria-checked="false" class="transfer-option" data-to="${d.id}"><strong>${safe(d.label)}</strong><small>${plural(d.item_count,'item','itens')} · ${money(d.total_cents)}</small></button>`),
+  `<button type="button" role="radio" aria-checked="false" class="transfer-option is-new" data-to="new"><strong>${icon('plus')}Nova venda</strong><small>Abre uma venda só com este item</small></button>`].join('');
+ $('transfer-ok').disabled=true;$('transfer-dialog').showModal();$('transfer-options').querySelector('button')?.focus();
 }
 function renderCash(){
  const {shift,expectedCents,events,cashSalesCents,suppliesCents,withdrawalsCents,methods,totalCents,salesCount,canceledCount}=state.cash;
@@ -96,10 +136,12 @@ function renderCash(){
  if(cashControlKey!==key){cashControlKey=key;$('cash-controls').innerHTML=shift?`<div class="form"><div class="section-label">Nova movimentação</div><div class="grid2"><label>Tipo de movimentação<select id="movement-kind"><option value="withdrawal">Sangria (retirada)</option><option value="supply">Suprimento (entrada)</option></select></label><label>Valor (R$)<input id="movement-amount" placeholder="20,00" inputmode="decimal"></label></div><label>Descrição<input id="movement-note" placeholder="Ex.: retirada para cofre"></label><button class="secondary" id="btn-move">${icon('swap')}Registrar movimentação</button><div class="hline"></div><div class="section-label">Fechamento do turno</div><label>Dinheiro contado no fechamento (R$)<input id="close-counted" inputmode="decimal" placeholder="0,00"></label><button class="danger" id="btn-close">${icon('lock')}Fechar turno</button></div>`
   :state.employees.length?`<div class="form"><label>Operador do caixa<select id="opening-operator">${state.employees.map(e=>`<option value="${e.id}" ${state.operator?.id===e.id?'selected':''}>${safe(e.name)}</option>`).join('')}</select></label><label>Fundo inicial em dinheiro (R$)<input id="opening-amount" placeholder="100,00" value="0,00" inputmode="decimal"></label><button class="primary big" id="btn-open">${icon('unlock')}Abrir caixa</button></div>`
   :`<div class="notice">${icon('users')}<span><strong>Cadastre a equipe primeiro.</strong> O caixa é aberto em nome de um funcionário.</span></div><button class="primary big top-gap" data-goto="funcionarios">${icon('users')}Cadastrar funcionários</button>`;}
+ const open=(state.openSales||[]).filter(d=>d.item_count>0);
+ paint('cash-open-sales',shift&&open.length?`<div class="notice warn">${icon('alert')}<span><strong>${open.length===1?'1 venda em aberto':`${open.length} vendas em aberto`}.</strong> Cobre ou descarte antes de fechar o caixa.</span></div><div class="open-sales-list">${open.map(d=>`<button type="button" class="secondary" data-open-sale="${d.id}">${safe(d.label)} · ${money(d.total_cents)}${icon('arrow-right')}</button>`).join('')}</div>`:'');
  paint('cash-events',events?.length?events.map(e=>{const out=e.kind==='withdrawal';return `<div class="rowline"><span class="ev-icon ${out?'out':'in'}">${icon(out?'arrow-down':'arrow-up')}</span><div class="grow"><strong>${out?'Sangria':'Suprimento'}</strong><small>${safe(e.note)||'Sem descrição'} · ${time(e.created_at)}${e.operator_name?` · ${safe(e.operator_name)}`:''}</small></div><strong class="${out?'neg':'pos'}">${out?'−':'+'} ${money(e.amount_cents)}</strong></div>`;}).join(''):emptyState('swap','Nenhuma movimentação','Sangrias e suprimentos do turno aparecem aqui.'));
 }
 function renderProducts(){
- paint('product-list',state.products.length?state.products.map((p,i)=>`<div class="rowline"><span class="tone-dot ${TONES[i%4]}"></span><div class="grow"><strong>${safe(p.name)}</strong><small>${money(p.price_cents)}</small></div><span class="stock ${p.stock<1?'out':p.stock<=5?'low':''}">${p.stock<1?'Sem estoque':p.stock+' un.'}</span><div class="row-buttons"><button class="secondary" data-edit="${p.id}">Editar</button><button class="danger" data-delete="${p.id}" aria-label="Excluir ${safe(p.name)}" title="Excluir">${icon('trash')}</button></div></div>`).join(''):emptyState('box','Nenhum produto cadastrado','Use o formulário ao lado para cadastrar o primeiro item.'));
+ paint('product-list',state.products.length?state.products.map((p,i)=>`<div class="rowline"><span class="tone-dot ${TONES[i%4]}"></span><div class="grow"><strong>${safe(p.name)}</strong><small>${money(p.price_cents)}${p.reserved?` · ${p.reserved} em vendas abertas`:''}</small></div><span class="stock ${p.stock<1?'out':p.stock<=5?'low':''}">${p.stock<1?'Sem estoque':p.stock+' un.'}</span><div class="row-buttons"><button class="secondary" data-edit="${p.id}">Editar</button><button class="danger" data-delete="${p.id}" aria-label="Excluir ${safe(p.name)}" title="Excluir">${icon('trash')}</button></div></div>`).join(''):emptyState('box','Nenhum produto cadastrado','Use o formulário ao lado para cadastrar o primeiro item.'));
 }
 function renderEmployees(){
  paint('employee-list',state.employees.length?state.employees.map(e=>`<div class="rowline"><span class="avatar">${safe(initials(e.name))}</span><div class="grow"><strong>${safe(e.name)}</strong>${state.operator?.id===e.id?'<small class="pos">No caixa agora</small>':''}</div><div class="row-buttons"><button class="secondary" data-emp-edit="${e.id}">Editar</button><button class="danger" data-emp-remove="${e.id}" aria-label="Desativar ${safe(e.name)}" title="Desativar">${icon('trash')}</button></div></div>`).join(''):emptyState('users','Nenhum funcionário','Cadastre quem vai operar o caixa.'));
@@ -118,7 +160,7 @@ function updateManualPreview(){
  else text='Para cobrar um valor fechado quando não for possível pesar.';
  $('manual-preview').textContent=text;
 }
-function openManual(){if(!state.cash.shift)return flash('Abra o caixa para vender',true);$('manual-input').value='';setManualMode(manualMode);$('manual-dialog').showModal();$('manual-input').focus();}
+function openManual(){if(!state.cash.shift||!state.activeSale)return flash('Abra o caixa para vender',true);$('manual-target').textContent=state.activeSale.label;$('manual-input').value='';setManualMode(manualMode);$('manual-dialog').showModal();$('manual-input').focus();}
 async function renderHistory(){
  try{const p=new URLSearchParams();const q=$('hist-q').value.trim();
  if(q)p.set('q',q);else{p.set('from',$('hist-from').value);p.set('to',$('hist-to').value);if($('hist-status').value)p.set('status',$('hist-status').value);}
@@ -130,7 +172,7 @@ async function renderHistory(){
 async function openSale(id){
  try{const s=await get('/api/sales/detail?id='+id);currentSale=s;
  $('sale-title').innerHTML=`Venda #${s.id} ${s.status==='canceled'?'<span class="tag off">Cancelada</span>':'<span class="tag on">Concluída</span>'}`;
- $('sale-body').innerHTML=`<div class="sale-meta"><div><small>Data e hora</small><strong>${date(s.created_at)}</strong></div><div><small>Operador</small><strong>${safe(s.operator_name||'—')}</strong></div><div><small>Pagamento</small><strong>${safe(PAY[s.method])}</strong></div><div><small>Itens</small><strong>${s.items.length}</strong></div></div>
+ $('sale-body').innerHTML=`<div class="sale-meta"><div><small>Data e hora</small><strong>${date(s.created_at)}</strong></div><div><small>Operador</small><strong>${safe(s.operator_name||'—')}</strong></div><div><small>Pagamento</small><strong>${safe(PAY[s.method])}</strong></div><div><small>Itens</small><strong>${s.items.length}</strong></div>${s.draft_label?`<div><small>Atendimento</small><strong>${safe(s.draft_label)}</strong></div>`:''}</div>
   <div class="sale-items">${s.items.map(i=>`<div class="rowline"><div class="grow"><strong>${safe(i.label)}${i.manual?' <span class="tag warn">digitado</span>':''}</strong><small>${itemLine(i.kind,i.grams,i.quantity,i.unit_cents)}</small></div><strong>${money(i.total_cents)}</strong></div>`).join('')}</div>
   <div class="sale-total ${s.status==='canceled'?'is-canceled':''}"><span>Total</span><strong>${money(s.total_cents)}</strong></div>
   ${s.received_cents!=null?`<div class="sale-change"><div class="rowline"><span>Valor recebido</span><strong>${money(s.received_cents)}</strong></div><div class="rowline"><span>Troco</span><strong>${money(s.change_cents)}</strong></div></div>`:''}
@@ -178,33 +220,55 @@ async function boot(){try{TOKEN=(await get('/api/session')).token;await refresh(
  $('btn-price').addEventListener('click',()=>run('/api/config',{priceKg:$('price-kg').value},()=>flash('Preço por quilo atualizado')));
  $('price-kg').addEventListener('keydown',e=>{if(e.key==='Enter')$('btn-price').click();});
  $('auto-capture').addEventListener('change',e=>run('/api/config',{autoCapture:e.target.checked},()=>flash('Configuração salva')));
- $('btn-capture').addEventListener('click',()=>run('/api/cart/weight',{},()=>flash('Pesagem adicionada à venda')));
+ $('btn-capture').addEventListener('click',()=>run('/api/cart/weight',{saleId:state.activeSaleId},r=>flash(`Pesagem adicionada a ${r.label}`)));
+ $('capture-pending').addEventListener('click',async e=>{const retry=e.target.closest('[data-retry]'),drop=e.target.closest('[data-drop]');
+  if(retry)run('/api/scale/pending/retry',{captureId:retry.dataset.retry},r=>flash(`Pesagem gravada em ${r.label}`));
+  if(drop&&await ask('Descartar esta pesagem?','Ela não entra em nenhuma venda. Se o cliente ainda estiver aqui, pese de novo ou digite o peso.',{confirmLabel:'Descartar pesagem',tone:'danger-solid'}))run('/api/scale/pending/discard',{captureId:drop.dataset.drop});});
+ $('sale-tabs').addEventListener('click',e=>{const b=e.target.closest('[data-sale]');if(b)selectSale(b.dataset.sale);});
+ $('sale-tabs').addEventListener('keydown',e=>{const list=[...$('sale-tabs').querySelectorAll('[data-sale]')],i=list.indexOf(document.activeElement);if(i<0)return;
+  const next={ArrowRight:i+1,ArrowLeft:i-1,Home:0,End:list.length-1}[e.key];if(next===undefined)return;e.preventDefault();list[(next+list.length)%list.length].focus();});
+ $('btn-new-sale').addEventListener('click',()=>{if(!state.canSwitch)return flash('Retire o produto da balança para abrir outra venda.',true);run('/api/open-sales/create');});
+ $('sale-name').addEventListener('click',startRename);
+ $('sale-name-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();finishRename(true);}if(e.key==='Escape'){e.preventDefault();finishRename(false);}});
+ $('sale-name-input').addEventListener('blur',()=>finishRename(true));
+ $('transfer-options').addEventListener('click',e=>{const b=e.target.closest('[data-to]');if(!b)return;transferTo=b.dataset.to;
+  document.querySelectorAll('#transfer-options [data-to]').forEach(x=>x.setAttribute('aria-checked',x===b));$('transfer-ok').disabled=false;});
+ $('transfer-options').addEventListener('dblclick',e=>{if(e.target.closest('[data-to]'))$('transfer-form').requestSubmit();});
+ $('transfer-cancel').addEventListener('click',()=>$('transfer-dialog').close());
+ $('transfer-form').addEventListener('submit',async e=>{e.preventDefault();if(!transferTo)return;
+  const r=await run('/api/open-sales/transfer-item',{saleId:transferFrom,key:transferKey,toSaleId:transferTo},r=>flash(`Item transferido para ${r.to.label}`));if(r)$('transfer-dialog').close();});
+ $('btn-discard').addEventListener('click',async()=>{const sale=state.activeSale,n=state.cart.length;if(!sale)return;
+  if(n&&!await ask(`Descartar ${sale.label}?`,`${plural(n,'item','itens')} · ${money(state.cartTotalCents)}. Os itens saem da venda e nada é cobrado.`,{confirmLabel:'Descartar venda',tone:'danger-solid'}))return;
+  run('/api/open-sales/discard',{saleId:sale.id},()=>flash(`${sale.label} descartada`));});
+ $('cash-open-sales').addEventListener('click',e=>{const b=e.target.closest('[data-open-sale]');if(!b)return;tab('vendas');if(b.dataset.openSale!==state.activeSaleId)selectSale(b.dataset.openSale);});
  $('btn-manual').addEventListener('click',openManual);
  document.querySelectorAll('[data-manual]').forEach(b=>b.addEventListener('click',()=>{setManualMode(b.dataset.manual);$('manual-input').focus();}));
  $('manual-input').addEventListener('input',updateManualPreview);
  $('manual-cancel').addEventListener('click',()=>$('manual-dialog').close());
  $('manual-form').addEventListener('submit',async e=>{e.preventDefault();const v=$('manual-input').value;const weightMode=manualMode==='weight';
-  const ok=await run(weightMode?'/api/cart/manual-weight':'/api/cart/manual-value',weightMode?{weight:v}:{amount:v},()=>flash(weightMode?'Peso digitado adicionado à venda':'Valor digitado adicionado à venda'));
+  const ok=await run(weightMode?'/api/cart/manual-weight':'/api/cart/manual-value',weightMode?{saleId:state.activeSaleId,weight:v}:{saleId:state.activeSaleId,amount:v},r=>flash(weightMode?`Peso digitado adicionado a ${r.label}`:`Valor digitado adicionado a ${r.label}`));
   if(ok)$('manual-dialog').close();else{$('manual-input').focus();$('manual-input').select();}});
  $('payment-method').addEventListener('click',e=>{const b=e.target.closest('[data-pay]');if(!b)return;setPay(b.dataset.pay);if(b.dataset.pay==='cash')$('cash-received').focus();});
  $('cash-received').addEventListener('input',render);
  $('cash-received').addEventListener('keydown',e=>{if(e.key!=='Enter')return;e.preventDefault();const c=cashState();if(c.invalid||c.short)return flash(c.invalid?'Use valor como 50,00':'Valor recebido menor que o total da venda',true);$('btn-checkout').click();});
  $('cash-quick').addEventListener('click',e=>{const b=e.target.closest('[data-received]');if(b){$('cash-received').value=b.dataset.received;render();}});
  $('payment-method').addEventListener('keydown',e=>{const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[e.key];if(!step)return;e.preventDefault();const list=[...document.querySelectorAll('[data-pay]')];const next=list[(list.findIndex(b=>b.dataset.pay===payMethod)+step+list.length)%list.length];setPay(next.dataset.pay);next.focus();});
- $('btn-checkout').addEventListener('click',async()=>{if(checkingOut)return;const n=state.cart.length,total=state.cartTotalCents;
-  const received=payMethod==='cash'?cashState().received:null;
-  if(!await ask(`Finalizar venda de ${money(total)}?`,`${plural(n,'item','itens')} · pagamento em ${PAY[payMethod]}`,{confirmLabel:'Finalizar',tone:'success',details:received!==null?[['Recebido',money(received)],['Troco',money(received-total),'pos']]:null}))return;
-  // One request at a time: a second click can never post a second sale.
+ $('btn-checkout').addEventListener('click',async()=>{if(checkingOut)return;const sale=state.activeSale;if(!sale)return;const n=state.cart.length,total=state.cartTotalCents,revision=sale.revision;
+  const received=payMethod==='cash'?cashState().received:null,others=state.openSales.length-1;
+  if(!await ask(`Cobrar ${sale.label}?`,`${plural(n,'item','itens')} · pagamento em ${PAY[payMethod]}${others?`. ${others===1?'A outra venda continua aberta':`As outras ${others} vendas continuam abertas`}.`:''}`,{confirmLabel:`Cobrar ${money(total)}`,tone:'success',details:[['Total',money(total)],...(received!==null?[['Recebido',money(received)],['Troco',money(received-total),'pos']]:[])]}))return;
+  // One request at a time, and the server charges only the total that was confirmed (revision).
   checkingOut=true;$('btn-checkout').disabled=true;
-  try{const result=await run('/api/checkout',{method:payMethod,uuid:crypto.randomUUID(),...(received!==null&&{received:price(received)})});
-   if(result){$('cash-received').value='';const change=result.sale.change_cents;flash(change!=null?`Venda #${result.sale.id} finalizada · troco ${money(change)}`:`Venda #${result.sale.id} finalizada com sucesso`);}}finally{checkingOut=false;render();}});
- $('btn-clear').addEventListener('click',async()=>{if(await ask('Limpar a venda atual?','Todos os itens lançados nesta venda serão removidos.',{confirmLabel:'Limpar venda',tone:'danger-solid'}))run('/api/cart/clear',{},()=>{$('cash-received').value='';});});
- $('quick-products').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)run('/api/cart/unit',{id:Number(b.dataset.add),quantity:1});});
- $('cart-items').addEventListener('click',e=>{const r=e.target.closest('[data-remove]');if(r)return run('/api/cart/remove',{key:r.dataset.remove});const q=e.target.closest('[data-qty]');if(q)run('/api/cart/quantity',{key:q.dataset.qty,quantity:Number(q.dataset.to)});});
+  try{const result=await run('/api/checkout',{saleId:sale.id,revision,method:payMethod,uuid:crypto.randomUUID(),...(received!==null&&{received:price(received)})});
+   if(result){$('cash-received').value='';const change=result.sale.change_cents;flash(`${sale.label} cobrada · venda #${result.sale.id}${change!=null?` · troco ${money(change)}`:''}`);}}finally{checkingOut=false;render();}});
+ $('quick-products').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)run('/api/cart/unit',{saleId:state.activeSaleId,id:Number(b.dataset.add),quantity:1});});
+ $('cart-items').addEventListener('click',e=>{const saleId=state.activeSaleId;const m=e.target.closest('[data-move]');if(m)return openTransfer(m.dataset.move);
+  const r=e.target.closest('[data-remove]');if(r)return run('/api/cart/remove',{saleId,key:r.dataset.remove});const q=e.target.closest('[data-qty]');if(q)run('/api/cart/quantity',{saleId,key:q.dataset.qty,quantity:Number(q.dataset.to)});});
  $('cash-controls').addEventListener('click',async e=>{
   const id=e.target.closest('button')?.id;
   if(id==='btn-open')run('/api/shift/open',{opening:$('opening-amount').value,operatorId:Number($('opening-operator').value)},()=>flash('Caixa aberto'));
   if(id==='btn-move')run('/api/shift/move',{kind:$('movement-kind').value,amount:$('movement-amount').value,note:$('movement-note').value},()=>flash('Movimentação registrada'));
+  const open=(state.openSales||[]).filter(d=>d.item_count>0);
+  if(id==='btn-close'&&open.length)return ask(open.length===1?'Existe 1 venda em aberto':`Existem ${open.length} vendas em aberto`,open.length===1?'Cobre ou descarte essa venda para fechar o caixa. Toque nela na lista acima para abri-la.':'Cobre ou descarte essas vendas para fechar o caixa. Toque em cada uma na lista acima para abri-la.',{alert:true,confirmLabel:'Entendi',details:open.map(d=>[d.label,money(d.total_cents)])});
   if(id==='btn-close'&&await ask('Fechar o caixa agora?','Confira o dinheiro contado antes de continuar. O turno será encerrado.',{confirmLabel:'Fechar turno',tone:'danger-solid'}))
    run('/api/shift/close',{counted:$('close-counted').value},r=>ask('Caixa fechado','Resumo do turno para conferência.',{alert:true,confirmLabel:'Concluir',tone:'success',details:[
     ['Total vendido',money(r.totalCents)],['Vendas',String(r.salesCount)+(r.canceledCount?` (${plural(r.canceledCount,'cancelada','canceladas')})`:'')],['Pix',money(r.methods.pix)],['Dinheiro',money(r.methods.cash)],['Débito',money(r.methods.debit)],['Crédito',money(r.methods.credit)],
@@ -225,8 +289,8 @@ async function boot(){try{TOKEN=(await get('/api/session')).token;await refresh(
   const reason=await ask(`Cancelar a venda #${s.id}?`,`${money(s.total_cents)} em ${PAY[s.method]}. O estoque volta e a venda sai dos totais do caixa.`,{confirmLabel:'Cancelar venda',tone:'danger-solid',input:{label:'Motivo do cancelamento',placeholder:'Ex.: cliente desistiu'}});
   if(reason&&await run('/api/sales/cancel',{id:s.id,reason},()=>flash(`Venda #${s.id} cancelada`)))renderHistory();});
  $('btn-sale-correct').addEventListener('click',async()=>{const s=currentSale;$('sale-dialog').close();
-  const reason=await ask(`Corrigir a venda #${s.id}?`,'A venda é cancelada e os itens voltam para a venda atual, para você ajustar e finalizar de novo.',{confirmLabel:'Cancelar e corrigir',tone:'primary',input:{label:'O que precisa corrigir?',placeholder:'Ex.: peso errado'}});
-  if(reason&&await run('/api/sales/correct',{id:s.id,reason},()=>flash('Itens de volta na venda atual. Ajuste e finalize novamente.')))tab('vendas');});
+  const reason=await ask(`Corrigir a venda #${s.id}?`,'A venda é cancelada e os itens vão para uma nova venda aberta, para você ajustar e cobrar de novo. As outras vendas não mudam.',{confirmLabel:'Cancelar e corrigir',tone:'primary',input:{label:'O que precisa corrigir?',placeholder:'Ex.: peso errado'}});
+  if(reason&&await run('/api/sales/correct',{id:s.id,reason},r=>flash(r.selected?`Itens em ${r.draft.label}. Ajuste e cobre novamente.`:`Itens em ${r.draft.label}. Retire o produto da balança e selecione essa venda.`)))tab('vendas');});
  document.querySelectorAll('[data-period]').forEach(b=>b.addEventListener('click',()=>{reportPeriod=b.dataset.period;renderReports();}));
  $('report-prev').addEventListener('click',()=>{reportDate=stepPeriod(reportDate,reportPeriod,-1);renderReports();});
  $('report-next').addEventListener('click',()=>{reportDate=stepPeriod(reportDate,reportPeriod,1);if(currentReport&&reportDate>currentReport.today)reportDate=currentReport.today;renderReports();});

@@ -36,6 +36,7 @@
  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2v-19z"/><path d="M9 7.5h6M9 11.5h6M9 15.5h3"/></symbol>
+ <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/></symbol>
  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
 </svg>
 
@@ -66,10 +67,16 @@
 <section id="vendas" class="panel">
  <div class="heading"><div><span class="eyebrow">Frente de caixa</span><h1>Pesou, lançou, vendeu.</h1><p>O peso estabiliza, o sistema calcula e o copo já entra na venda.</p></div><span class="status-note" id="scale-note">Balança não conectada</span></div>
  <div class="banner hidden" id="closed-banner"><span class="banner-icon"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg></span><div><strong>O caixa está fechado</strong><span>Abra o turno para começar a registrar vendas.</span></div><button class="primary" data-goto="caixa">Abrir caixa<svg class="i" aria-hidden="true"><use href="#i-arrow-right"/></svg></button></div>
+ <div class="sales-bar hidden" id="sales-bar">
+  <div class="sales-tabs" id="sale-tabs" role="tablist" aria-label="Vendas abertas"></div>
+  <button type="button" class="new-sale" id="btn-new-sale" title="Abrir uma venda para outro cliente"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Nova venda</button>
+ </div>
+ <p class="switch-hint hidden" id="switch-hint"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Retire o produto da balança para trocar de venda.</p>
  <div class="sale-grid">
   <div class="sale-main">
    <div class="card weight-card">
     <div class="card-title"><span>Pesagem em tempo real</span><span class="mode-tag" id="weight-mode">OFFLINE</span></div>
+    <div class="weigh-target hidden" id="weigh-target"><svg class="i" aria-hidden="true"><use href="#i-scale"/></svg><span>Pesando para</span><strong id="weigh-target-name">—</strong></div>
     <div class="reading"><strong id="weight-value">0,000</strong><span>kg</span></div>
     <div class="status-row"><span id="weight-status" class="chip">Aguardando</span><span class="hint" id="weight-instructions">Ative a balança ou o simulador</span></div>
     <div class="weight-foot">
@@ -81,6 +88,7 @@
      <button class="accent big" id="btn-capture"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Adicionar pesagem à venda</button>
      <button class="ghost-light" id="btn-manual"><svg class="i" aria-hidden="true"><use href="#i-keyboard"/></svg><span>Digitar peso ou valor</span></button>
     </div>
+    <div class="capture-pending hidden" id="capture-pending" role="alert"></div>
     <label class="switch"><input type="checkbox" id="auto-capture"/><span class="track" aria-hidden="true"></span>Lançar automaticamente quando o peso estabilizar</label>
    </div>
    <div class="card">
@@ -89,7 +97,10 @@
    </div>
   </div>
   <div class="card cart-card">
-   <div class="card-title"><span>Venda atual</span><span class="count" id="cart-count">0 itens</span></div>
+   <div class="card-title cart-head">
+    <div class="sale-name-wrap"><small>Venda selecionada</small><button type="button" class="sale-name" id="sale-name" title="Renomear venda"><span id="sale-name-text">—</span><svg class="i" aria-hidden="true"><use href="#i-edit"/></svg></button><input id="sale-name-input" class="sale-name-input hidden" maxlength="30" autocomplete="off" aria-label="Nome da venda"/></div>
+    <span class="count" id="cart-count">0 itens</span>
+   </div>
    <div id="cart-items" class="cart-items"></div>
    <div class="cart-bottom">
     <div class="cart-total"><span>Total da venda</span><strong id="cart-total">R$ 0,00</strong></div>
@@ -105,8 +116,8 @@
      <div class="cash-quick" id="cash-quick" aria-label="Atalhos de valor recebido"></div>
      <div class="cash-change" id="cash-change" aria-live="polite"></div>
     </div>
-    <button class="success big" id="btn-checkout"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Finalizar venda</button>
-    <button class="link-btn" id="btn-clear">Limpar venda</button>
+    <button class="success big" id="btn-checkout"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span id="checkout-label">Cobrar esta venda</span></button>
+    <button class="link-btn" id="btn-discard">Descartar venda</button>
    </div>
   </div>
  </div>
@@ -130,7 +141,7 @@
 <section id="caixa" class="panel hidden">
  <div class="heading"><div><span class="eyebrow">Financeiro</span><h1>Controle de caixa</h1><p>Abertura, sangria, suprimento e fechamento do turno.</p></div></div>
  <div class="columns">
-  <div class="card"><div class="card-title">Situação do turno</div><div id="cash-summary"></div><div class="hline"></div><div id="cash-controls"></div></div>
+  <div class="card"><div class="card-title">Situação do turno</div><div id="cash-summary"></div><div class="hline"></div><div id="cash-open-sales"></div><div id="cash-controls"></div></div>
   <div class="card"><div class="card-title">Movimentações do turno</div><div id="cash-events"></div></div>
  </div>
 </section>
@@ -226,11 +237,22 @@
  <form id="manual-form" novalidate>
   <span class="modal-icon"><svg class="i" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
   <h2 id="manual-title">Lançamento manual</h2>
-  <p>Use quando a balança não enviar o peso. Fica registrado como digitado.</p>
+  <p>Use quando a balança não enviar o peso. Fica registrado como digitado.<br/>Lança em <strong id="manual-target">—</strong>.</p>
   <div class="seg" role="tablist" aria-label="Tipo de lançamento"><button type="button" role="tab" data-manual="weight" aria-selected="true">Peso (kg)</button><button type="button" role="tab" data-manual="value" aria-selected="false">Valor (R$)</button></div>
   <label class="big-field"><span id="manual-label">Peso do copo</span><span class="big-input"><span id="manual-prefix"></span><input id="manual-input" inputmode="decimal" autocomplete="off" placeholder="0,450"/><span id="manual-unit">kg</span></span></label>
   <div class="manual-preview" id="manual-preview"></div>
   <div class="modal-actions"><button type="submit" class="primary" id="manual-ok"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Adicionar</button><button type="button" class="secondary" id="manual-cancel">Voltar</button></div>
+ </form>
+</dialog>
+
+<dialog id="transfer-dialog" class="modal" aria-labelledby="transfer-title">
+ <form id="transfer-form">
+  <span class="modal-icon"><svg class="i" aria-hidden="true"><use href="#i-swap"/></svg></span>
+  <h2 id="transfer-title">Transferir item</h2>
+  <p id="transfer-item"></p>
+  <div class="field-label" id="transfer-label">Para qual venda?</div>
+  <div id="transfer-options" class="transfer-grid" role="radiogroup" aria-labelledby="transfer-label"></div>
+  <div class="modal-actions"><button type="submit" class="primary" id="transfer-ok"><svg class="i" aria-hidden="true"><use href="#i-swap"/></svg>Transferir</button><button type="button" class="secondary" id="transfer-cancel">Voltar</button></div>
  </form>
 </dialog>
 

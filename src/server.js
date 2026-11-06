@@ -16,18 +16,35 @@ function serve(res,filename){
 }
 function createServer({db,scale}){
   const token=randomBytes(24).toString('hex');let lastAutoError='';
+  // Weighings that could not be stored wait here for an explicit retry or discard; they are never dropped silently.
+  let pending=[];
+  // One scale cycle goes to exactly one open sale. Node runs this to completion, so the destination can't change
+  // between reading the active sale and storing the weighing.
+  function capture(reading,saleId){
+    try{const sale=db.addWeighed(saleId,reading.grams,reading.captureId);scale.consume();return sale;}
+    catch(err){
+      scale.consume();let label='';try{label=db.draftRow(saleId)?.label||'';}catch(_){}
+      pending=[...pending.filter(p=>p.captureId!==reading.captureId),{...reading,saleId,label,error:err.message,at:new Date().toISOString()}];
+      throw err;
+    }
+  }
+  function takePending(captureId){const p=pending.find(x=>x.captureId===captureId);if(!p)throw Error('Pesagem pendente não encontrada');return p;}
+  // The weighing destination only changes with nothing on the plate, so a cup placed for one customer can't
+  // finish its weighing in another customer's sale.
+  function guardSwitch(){if(!scale.idle())throw Error('Retire o produto da balança para trocar de venda.');}
   scale.onReady=()=>{
     if(!db.getConfig().autoCapture||!db.shift())return;
-    const snapshot=scale.snapshot();if(!snapshot.ready)return;
-    // Validation before consuming prevents a lost reading on a closed shift.
-    try{const g=scale.consume();if(g!==null)db.addWeighed(g);}catch(err){lastAutoError=err.message;}
+    // Checked before consuming, so with the shift closed or auto-capture off the reading waits on the scale.
+    const reading=scale.peek();const saleId=db.activeSaleId();if(!reading||!saleId)return;
+    try{capture(reading,saleId);lastAutoError='';}catch(err){lastAutoError=err.message;}
   };
   async function router(req,res){
     const url=new URL(req.url,`http://${HOST}`);const pathname=url.pathname;const q=Object.fromEntries(url.searchParams);
     if(req.method==='GET' && pathname==='/')return serve(res,'index.html');
     if(req.method==='GET' && STATIC.includes(pathname))return serve(res,pathname.slice(1));
     if(req.method==='GET' && pathname==='/api/session')return send(res,200,{token});
-    if(req.method==='GET' && pathname==='/api/state')return send(res,200,{...db.getState(scale),lastAutoError});
+    if(req.method==='GET' && pathname==='/api/state')return send(res,200,{...db.getState(scale),canSwitch:scale.idle(),pendingCaptures:pending,lastAutoError});
+    if(req.method==='GET' && pathname==='/api/open-sales')return send(res,200,{activeSaleId:db.activeSaleId(),sales:db.listDraftSales()});
     if(req.method==='GET' && pathname==='/api/report')return send(res,200,db.report({period:q.period,date:q.date}));
     if(req.method==='GET' && pathname==='/api/sales')return send(res,200,db.salesHistory(q));
     if(req.method==='GET' && pathname==='/api/sales/detail')return send(res,200,db.saleDetail(q.id));
@@ -48,21 +65,31 @@ function createServer({db,scale}){
       case '/api/shift/close':result=db.closeShift(b.counted);break;
       case '/api/products/save':result=db.product(b);break;
       case '/api/products/remove':result=db.deleteProduct(b.id);break;
-      case '/api/cart/unit':result=db.addManual(b.id,b.quantity);break;
+      case '/api/open-sales/create':guardSwitch();result=db.createDraftSale();break;
+      case '/api/open-sales/select':if(b.saleId!==db.activeSaleId())guardSwitch();result=db.selectDraftSale(b.saleId);break;
+      case '/api/open-sales/rename':result=db.renameDraftSale(b.saleId,b.label);break;
+      case '/api/open-sales/discard':result=db.discardDraftSale(b.saleId);break;
+      case '/api/open-sales/transfer-item':result=db.transferDraftSaleItem(b.saleId,b.key,b.toSaleId);break;
+      case '/api/cart/unit':result=db.addUnit(b.saleId,b.id,b.quantity);break;
       case '/api/cart/weight':{
         if(!db.shift())throw Error('Abra o caixa primeiro');
-        if(!scale.snapshot().ready)throw Error('Aguarde um peso estável e novo ciclo de pesagem');
-        const grams=scale.consume();
-        result=db.addWeighed(grams);break;
+        if(b.saleId!==db.activeSaleId())throw Error('A balança está pesando para outra venda. Selecione esta venda antes de lançar o peso.');
+        const reading=scale.peek();if(!reading)throw Error('Aguarde um peso estável e novo ciclo de pesagem');
+        result=capture(reading,b.saleId);lastAutoError='';break;
       }
-      case '/api/cart/manual-weight':result=db.addManualWeight(b.weight);break;
-      case '/api/cart/manual-value':result=db.addManualValue(b.amount);break;
-      case '/api/cart/quantity':result=db.setQuantity(b.key,b.quantity);break;
-      case '/api/cart/remove':result=db.removeCart(b.key);break;
-      case '/api/cart/clear':result=db.clearCart();break;
-      case '/api/checkout':result=db.checkout(b.method,b.uuid,b.received);break;
+      case '/api/cart/manual-weight':result=db.addManualWeight(b.saleId,b.weight);break;
+      case '/api/cart/manual-value':result=db.addManualValue(b.saleId,b.amount);break;
+      case '/api/cart/quantity':result=db.setQuantity(b.saleId,b.key,b.quantity);break;
+      case '/api/cart/remove':result=db.removeDraftSaleItem(b.saleId,b.key);break;
+      case '/api/checkout':result=db.checkoutDraftSale(b.saleId,b.method,b.uuid,b.received,b.revision);break;
       case '/api/sales/cancel':result=db.cancelSale(b.id,b.reason);break;
-      case '/api/sales/correct':result=db.correctSale(b.id,b.reason);break;
+      case '/api/sales/correct':result=db.correctSale(b.id,b.reason,{select:scale.idle()});break;
+      case '/api/scale/pending/retry':{
+        const p=takePending(b.captureId);
+        try{result=db.addWeighed(p.saleId,p.grams,p.captureId);}catch(err){p.error=err.message;throw err;}
+        pending=pending.filter(x=>x!==p);lastAutoError='';break;
+      }
+      case '/api/scale/pending/discard':{const p=takePending(b.captureId);pending=pending.filter(x=>x!==p);console.warn(`Pesagem pendente descartada: ${p.grams} g (${p.label||p.saleId})`);result=true;break;}
       case '/api/scale/demo':result=scale.demo();lastAutoError='';break;
       case '/api/scale/demo-weight':result=scale.setDemoGrams(Number(b.grams));break;
       case '/api/scale/connect':result=await scale.connect(b.path,b.baudRate||2400);lastAutoError='';break;

@@ -171,7 +171,7 @@ input::placeholder{color:#b3a6b8}
 .qty button{width:28px;height:28px;border:0;border-radius:50%;background:#fff;color:var(--berry);display:grid;place-items:center;box-shadow:0 1px 3px rgba(94,33,72,.15)}
 .qty button .i{width:14px;height:14px;stroke-width:2.5}
 .qty span{min-width:22px;text-align:center;font-weight:800;font-size:13px}
-.ci-main strong{display:block;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ci-main strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;font-size:14px;font-weight:700;line-height:1.3;overflow:hidden;overflow-wrap:anywhere}
 .ci-main small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
 .ci-total{font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
 .remove{width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:50%;background:#fdeef0;color:var(--red);transition:background .15s,color .15s}
@@ -364,6 +364,61 @@ input::placeholder{color:#b3a6b8}
 .chart-table{margin-top:14px}
 .chart-table summary{cursor:pointer;color:var(--berry);font-weight:700;font-size:13px;width:max-content}
 
+/* Vendas abertas (abas de atendimento) */
+.sales-bar{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid rgba(94,33,72,.06);border-radius:22px;padding:8px;box-shadow:var(--shadow);margin-bottom:14px}
+.sales-tabs{position:relative;display:flex;gap:6px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin;padding:2px}
+.sale-tab{display:flex;align-items:center;gap:8px;flex:none;height:50px;padding:0 16px;border:1.5px solid var(--line-2);border-radius:16px;background:var(--cream);color:var(--ink);font-weight:700;white-space:nowrap;transition:border-color .15s,background .15s,box-shadow .15s,opacity .15s}
+.sale-tab:hover{border-color:rgba(94,33,72,.4)}
+.st-name{max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.st-total{color:var(--muted);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.sale-tab .i{width:18px;height:18px;color:var(--yellow)}
+.sale-tab.active{background:var(--berry);border-color:var(--berry);color:#fff;box-shadow:0 8px 18px -10px rgba(94,33,72,.75)}
+.sale-tab.active .st-total{color:rgba(255,255,255,.82)}
+.sale-tab.locked{opacity:.5;cursor:not-allowed}
+.sale-tab.locked:hover{border-color:var(--line-2)}
+.new-sale{flex:none;display:inline-flex;align-items:center;gap:8px;height:50px;padding:0 18px;border:0;border-radius:16px;background:var(--yellow);color:var(--navy);font-weight:800;white-space:nowrap;transition:background .15s,box-shadow .15s}
+.new-sale:hover{background:#f6c063;box-shadow:0 10px 24px -12px rgba(243,178,74,.9)}
+.new-sale:active{transform:scale(.97)}
+.switch-hint{display:flex;align-items:center;gap:8px;margin:-6px 0 14px 6px;color:#7d520e;font-size:12.5px;font-weight:600}
+.switch-hint .i{width:16px;height:16px}
+.weigh-target{position:relative;display:inline-flex;align-items:center;gap:8px;max-width:100%;margin:-6px 0 12px;padding:6px 14px 6px 10px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.85);font-size:13px;font-weight:600}
+.weigh-target .i{width:18px;height:18px;color:var(--yellow)}
+.weigh-target strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-size:14px;font-weight:800}
+.capture-pending{position:relative;display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.pending-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;background:#fff4e0;color:#6a4a12;border-radius:16px;padding:12px 14px}
+.pending-row>.i{color:var(--red)}
+.pending-row .grow{flex:1 1 220px}
+.pending-row .grow strong{color:var(--ink);font-size:13.5px}
+.pending-row .grow small{color:#6a4a12}
+.pending-row button{min-height:40px;padding:8px 14px;font-size:13px}
+.cart-head{align-items:flex-end}
+.sale-name-wrap{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.sale-name-wrap small{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:var(--muted)}
+.sale-name{display:inline-flex;align-items:center;gap:8px;max-width:100%;width:max-content;border:0;border-radius:10px;background:transparent;padding:2px 0;color:var(--berry);font-size:21px;font-weight:800;letter-spacing:-.01em;text-align:left}
+.sale-name span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sale-name .i{width:16px;height:16px;color:var(--muted);transition:color .15s}
+.sale-name:hover:not(:disabled) .i{color:var(--berry)}
+.sale-name-input{height:42px;margin-top:2px;padding:0 10px;font-size:18px;font-weight:800;color:var(--berry)}
+.ci-actions{display:flex;gap:6px;flex:none}
+.move{width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:50%;background:#efebfb;color:var(--lilac);transition:background .15s,color .15s}
+.move .i{width:16px;height:16px}
+.move:hover{background:var(--lilac);color:#fff}
+#transfer-dialog p{margin-bottom:16px}
+#transfer-dialog .field-label{text-align:left}
+.transfer-grid{display:grid;gap:8px;margin:10px 0 22px;max-height:min(320px,45vh);overflow:auto;padding:2px}
+.transfer-option{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:54px;padding:10px 16px;border:1.5px solid var(--line-2);border-radius:16px;background:#fff;color:var(--ink);text-align:left;transition:border-color .15s,background .15s,box-shadow .15s}
+.transfer-option:hover{border-color:rgba(94,33,72,.4)}
+.transfer-option strong{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+.transfer-option strong .i{width:16px;height:16px}
+.transfer-option small{flex:none;color:var(--muted);font-size:12px;font-weight:600}
+.transfer-option.is-new{border-style:dashed}
+.transfer-option[aria-checked="true"]{border-color:var(--berry);border-style:solid;background:var(--berry-tint);color:var(--berry);box-shadow:0 0 0 3px rgba(94,33,72,.12)}
+.notice.warn{background:#fff4e0;border-color:#f4d9a8;color:#6a4a12}
+.notice.warn .i{color:#b7791f}
+#cash-open-sales .notice{margin-top:0}
+.open-sales-list{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 20px}
+.open-sales-list button{min-height:40px;padding:8px 14px;font-size:13px}
+
 /* Responsivo */
 @media(max-width:1200px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}.filters>button{grid-column:1/-1}}
 @media(max-width:960px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -410,5 +465,38 @@ input::placeholder{color:#b3a6b8}
  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
  .product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
  #toast{bottom:96px;border-radius:18px}
+ /* On a phone every open sale stays in view: tabs wrap into rows instead of hiding off to the side. */
+ .sales-bar{flex-wrap:wrap;padding:6px;gap:6px;border-radius:18px}
+ .sales-tabs{flex:1 1 100%;flex-wrap:wrap;overflow:visible}
+ .sale-tab{flex:1 1 140px;height:46px;padding:0 12px;border-radius:14px}
+ .st-name{max-width:none;flex:0 1 auto;min-width:0}
+ .st-total{margin-left:auto}
+ .new-sale{flex:1 1 100%;justify-content:center;height:46px;border-radius:14px}
+ .sale-name{font-size:19px}
+}
+/* Short screens (1366×768 and similar): the cart, payment and "Cobrar" button must fit without scrolling the page. */
+@media(min-width:901px) and (max-height:860px){
+ .shell{padding-top:24px}
+ #vendas>.heading{display:none}
+ .cart-card{top:100px;max-height:calc(100vh - 116px);min-height:calc(100vh - 200px);padding:18px;overflow:auto}
+ .cart-card .card-title{margin-bottom:8px}
+ .sale-name{font-size:19px}
+ .cart-items{min-height:76px}
+ .cart-item{padding:9px 0}
+ .cart-bottom{margin-top:8px;padding-top:10px;gap:8px}
+ .cart-total{padding:10px 16px;border-radius:16px}
+ .cart-total strong{font-size:26px}
+ .pay-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+ .pay{flex-direction:column;justify-content:center;gap:2px;height:54px;padding:0 4px;border-radius:14px;font-size:12.5px;text-align:center}
+ .pay .i{width:18px;height:18px}
+ .pay[aria-checked="true"]::after{display:none}
+ .cash-box{gap:7px;padding:10px 12px;border-radius:16px}
+ .cash-input{height:46px;border-radius:14px}
+ .cash-input input{font-size:22px}
+ .cash-quick button{min-height:34px}
+ .cash-change{min-height:26px}
+ .cash-change strong{font-size:22px}
+ .cart-bottom .big{min-height:50px;padding:12px}
+ .cart-bottom .link-btn{padding:4px}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

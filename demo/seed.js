@@ -28,27 +28,46 @@ function seed(filename){
     upd('UPDATE shifts SET opened_at=? WHERE id=?',at(offset,firstHour-1,30),shiftId);
     const ids=[];
     for(let i=0;i<count;i++){
-      for(let c=rnd()<.22?2:1;c>0;c--){if(rnd()<.05)s.addManualWeight('0,'+String(between(30,75)*10).padStart(3,'0'));else s.addWeighed(between(26,82)*10);}
-      if(rnd()<.33)s.addManual(pick(prods),rnd()<.8?1:2);
+      const sale=s.activeSaleId();
+      for(let c=rnd()<.22?2:1;c>0;c--){if(rnd()<.05)s.addManualWeight(sale,'0,'+String(between(30,75)*10).padStart(3,'0'));else s.addWeighed(sale,between(26,82)*10);}
+      if(rnd()<.33)s.addUnit(sale,pick(prods),rnd()<.8?1:2);
       // Cash customers hand over the next R$ 10 up; computed without rnd(), so the rest of the data stays the same.
-      const m=method();ids.push(s.checkout(m,randomUUID(),m==='cash'?brl(Math.ceil(s.cartTotal()/1000)*1000):undefined).sale.id);
+      const m=method();ids.push(s.checkoutDraftSale(sale,m,randomUUID(),m==='cash'?brl(Math.ceil(s.getDraftSale(sale).totalCents/1000)*1000):undefined).sale.id);
     }
     const span=(lastHour-firstHour)*60+50;
-    ids.forEach((id,i)=>{const t=Math.floor((i+rnd()*.8)*span/ids.length);upd('UPDATE sales SET created_at=? WHERE id=?',at(offset,firstHour+Math.floor(t/60),t%60),id);});
+    ids.forEach((id,i)=>{const t=Math.floor((i+rnd()*.8)*span/ids.length);const when=at(offset,firstHour+Math.floor(t/60),t%60);upd('UPDATE sales SET created_at=? WHERE id=?',when,id);
+      // The open sale behind each sale was served in the minutes before it was paid.
+      const started=new Date(Date.parse(when)-3*60000).toISOString();
+      upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE sale_id=?',started,when,when,id);
+      upd('UPDATE draft_sale_items SET created_at=? WHERE draft_sale_id=(SELECT id FROM draft_sales WHERE sale_id=?)',started,id);});
     if(cancel&&ids.length>6){const id=ids[between(2,ids.length-2)];s.cancelSale(id,pick(reasons));
       const t=s.db.prepare('SELECT created_at FROM sales WHERE id=?').get(id).created_at;upd('UPDATE sales SET canceled_at=? WHERE id=?',new Date(Date.parse(t)+4*60000).toISOString(),id);}
     const cash=s.cashSummary().expectedCents;const out=sangria||(cash>35000?Math.floor((cash-15000)/5000)*5000:0);
     if(out){s.moveCash('withdrawal',brl(out),'Retirada para o cofre');upd('UPDATE cash_events SET created_at=? WHERE shift_id=?',at(offset,close?17:firstHour+1,40),shiftId);}
-    if(!close)return;
+    if(!close)return shiftId;
     const diff=rnd()<.7?0:pick([-250,-100,-50,100,200]);
-    s.closeShift(brl(s.cashSummary().expectedCents+diff));upd('UPDATE shifts SET closed_at=? WHERE id=?',at(offset,22,between(2,14)),shiftId);
+    s.closeShift(brl(s.cashSummary().expectedCents+diff));const closedAt=at(offset,22,between(2,14));upd('UPDATE shifts SET closed_at=? WHERE id=?',closedAt,shiftId);
+    // The empty sale left waiting on the scale is discarded when the shift closes.
+    upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE shift_id=? AND sale_id IS NULL',closedAt,closedAt,closedAt,shiftId);
+    upd('UPDATE draft_sale_events SET created_at=? WHERE draft_sale_id IN (SELECT id FROM draft_sales WHERE shift_id=? AND sale_id IS NULL)',closedAt,shiftId);
   }
   const volume=[52,30,33,36,38,46,64]; // Sun..Sat
   for(let offset=-DAYS;offset<0;offset++){const dow=new Date(base+offset*86400000).getUTCDay();day(offset,{count:Math.round(volume[dow]*(.85+rnd()*.3))});}
   // Today: the shift is open with a few sales, so the visitor can weigh right away.
-  day(0,{count:9,firstHour:12,lastHour:13,op:ops[0],close:false,cancel:true,sangria:5000});
-  for(const [id,stock] of prods.map((id,i)=>[id,[38,24,11,57][i]]))upd('UPDATE products SET stock=? WHERE id=?',stock,id);
+  const todayShift=day(0,{count:9,firstHour:12,lastHour:13,op:ops[0],close:false,cancel:true,sangria:5000});
   s.setOperator(ops[0]);
+  // Two customers still being served, so the visitor sees the tabs; the scale weighs for a third, empty sale.
+  const waiting=[['Família Oliveira',[418],[[prods[0],1]],52],['Mesa da varanda',[352,296],[],55]];
+  for(const [label,grams,units,minute] of waiting){
+    const sale=s.activeSaleId();s.renameDraftSale(sale,label);
+    for(const g of grams)s.addWeighed(sale,g);for(const [id,qty] of units)s.addUnit(sale,id,qty);
+    upd('UPDATE draft_sales SET created_at=?,updated_at=? WHERE id=?',at(0,13,minute),at(0,13,minute+1),sale);
+    upd('UPDATE draft_sale_items SET created_at=? WHERE draft_sale_id=?',at(0,13,minute+1),sale);
+    s.createDraftSale();
+  }
+  upd('UPDATE draft_sales SET created_at=?,updated_at=? WHERE id=?',at(0,13,58),at(0,13,58),s.activeSaleId());
+  upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE shift_id=? AND status<>? AND sale_id IS NULL',at(0,13,50),at(0,13,50),at(0,13,50),todayShift,'open');
+  for(const [id,stock] of prods.map((id,i)=>[id,[38,24,11,57][i]]))upd('UPDATE products SET stock=? WHERE id=?',stock,id);
   s.db.prepare('INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)').run('demo_seed_day',today);
   // sql.js opens plain database files; leave WAL so the bytes are self-contained.
   s.db.exec('PRAGMA journal_mode=DELETE');

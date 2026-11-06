@@ -3,20 +3,23 @@ const test=require('node:test'),assert=require('node:assert/strict');const fs=re
 const {randomUUID}=require('node:crypto');const {DatabaseSync}=require('node:sqlite');
 const {Store}=require('../src/db');const {ScaleDriver}=require('../src/scale');
 function fixture(file){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'luminor-test-'));const full=path.join(dir,'sample.sqlite');if(file)file(full);const db=new Store(full);return {db,op:db.saveEmployee({name:'Ana'}).id,clean(){db.close();fs.rmSync(dir,{recursive:true,force:true});}};}
-const sell=(s,method='pix',value='10,00')=>{s.addManualValue(value);return s.checkout(method,randomUUID()).sale;};
+const A=s=>s.activeSaleId();
+const items=s=>s.getDraftSale(A(s)).items;
+const pay=(s,method,key=randomUUID(),received)=>s.checkoutDraftSale(A(s),method,key,received);
+const sell=(s,method='pix',value='10,00')=>{s.addManualValue(A(s),value);return pay(s,method).sale;};
 const backdate=(s,id,iso)=>s.db.prepare('UPDATE sales SET created_at=? WHERE id=?').run(iso,id);
 
 test('checkout weight, product stock, change and daily reports',()=>{
  const f=fixture();const s=f.db;
  try{
   assert.equal(s.getConfig().priceKgCents,6490);
-  assert.throws(()=>s.addWeighed(300),/caixa/);
+  assert.throws(()=>s.addWeighed(A(s),300),/caixa/);
   s.openShift('100,00',f.op);
   const {id}=s.product({name:'Água sem gás',price:'5,00',stock:3});
-  s.addWeighed(840);s.addManual(id,2);
-  assert.equal(s.cartTotal(),6452);
-  const key=randomUUID();const a=s.checkout('cash',key);assert.equal(a.sale.total_cents,6452);
-  assert.equal(s.checkout('cash',key).duplicate,true);
+  s.addWeighed(A(s),840);s.addUnit(A(s),id,2);
+  assert.equal(s.getDraftSale(A(s)).totalCents,6452);
+  const key=randomUUID();const a=pay(s,'cash',key);assert.equal(a.sale.total_cents,6452);
+  assert.equal(pay(s,'cash',key).duplicate,true);
   assert.equal(s.listProducts()[0].stock,1);
   assert.equal(s.cashSummary().expectedCents,16452);
   s.moveCash('withdrawal','20,00','retirada');
@@ -27,11 +30,13 @@ test('checkout weight, product stock, change and daily reports',()=>{
 });
 test('stock rejects overselling and rolls back sale',()=>{
  const f=fixture();try{
- const s=f.db;s.openShift('0',f.op);const p=s.product({name:'Água',price:'5',stock:1});s.addManual(p.id,1);
+ const s=f.db;s.openShift('0',f.op);const p=s.product({name:'Água',price:'5',stock:1});s.addUnit(A(s),p.id,1);
  // Another stock adjustment after the item enters the cart.
  s.product({id:p.id,name:'Água',price:'5',stock:0});
- assert.throws(()=>s.checkout('pix',randomUUID()),/Estoque insuficiente/);
+ assert.throws(()=>pay(s,'pix',randomUUID()),/Estoque insuficiente/);
  assert.equal(s.report().sales.length,0);assert.equal(s.listProducts()[0].stock,0);
+ // Nothing was written: the open sale keeps its item to be fixed and charged again.
+ assert.equal(items(s).length,1);assert.equal(s.listDraftSales().length,1);
  }finally{f.clean();}
 });
 test('demo scale disarms and rearms only at zero',()=>{
@@ -45,16 +50,16 @@ test('demo scale disarms and rearms only at zero',()=>{
 test('the same sale id is recorded only once',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('50,00',f.op);const p=s.product({name:'Água',price:'5,00',stock:5});
-  s.addManual(p.id,2);s.addWeighed(500);const key=randomUUID();
-  const first=s.checkout('cash',key);const again=s.checkout('cash',key);
+  s.addUnit(A(s),p.id,2);s.addWeighed(A(s),500);const key=randomUUID();
+  const first=pay(s,'cash',key);const again=pay(s,'cash',key);
   assert.equal(first.duplicate,false);assert.equal(again.duplicate,true);assert.equal(again.sale.id,first.sale.id);
   assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,1);
   assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM sale_items').get().n,2);
   assert.equal(s.listProducts()[0].stock,3);
   assert.equal(s.cashSummary().expectedCents,5000+first.sale.total_cents);
-  assert.throws(()=>s.checkout('cash',randomUUID()),/Carrinho vazio/);
-  assert.throws(()=>s.checkout('cash','curto'),/Identificador/);
-  assert.throws(()=>s.checkout('cheque',randomUUID()),/Forma de pagamento/);
+  assert.throws(()=>pay(s,'cash',randomUUID()),/não tem itens/);
+  assert.throws(()=>pay(s,'cash','curto'),/Identificador/);
+  assert.throws(()=>pay(s,'cheque',randomUUID()),/Forma de pagamento/);
  }finally{f.clean();}
 });
 test('each payment method is totaled and only cash goes into the drawer',()=>{
@@ -71,34 +76,34 @@ test('each payment method is totaled and only cash goes into the drawer',()=>{
 test('cash payment records the amount received and the change',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('100,00',f.op);
-  s.addManualValue('31,54');const key=randomUUID();
-  const sale=s.checkout('cash',key,'50,00').sale;
+  s.addManualValue(A(s),'31,54');const key=randomUUID();
+  const sale=pay(s,'cash',key,'50,00').sale;
   assert.equal(sale.received_cents,5000);assert.equal(sale.change_cents,1846);
   // The drawer keeps the sale total: the change left with the customer.
   assert.equal(s.cashSummary().expectedCents,10000+3154);
-  assert.equal(s.checkout('cash',key,'100,00').sale.change_cents,1846);
+  assert.equal(pay(s,'cash',key,'100,00').sale.change_cents,1846);
   const detail=s.saleDetail(sale.id);assert.equal(detail.received_cents,5000);assert.equal(detail.change_cents,1846);
-  s.addManualValue('31,54');
-  assert.throws(()=>s.checkout('cash',randomUUID(),'30,00'),/Valor recebido menor/);
-  assert.throws(()=>s.checkout('cash',randomUUID(),'cinquenta'),/Use valor/);
-  assert.equal(s.cart.length,1);assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,1);
-  assert.equal(s.checkout('cash',randomUUID(),'R$ 31,54').sale.change_cents,0);
-  s.addManualValue('12,00');const blank=s.checkout('cash',randomUUID(),'').sale;assert.equal(blank.received_cents,null);assert.equal(blank.change_cents,null);
-  s.addManualValue('12,00');const pix=s.checkout('pix',randomUUID(),'50,00').sale;assert.equal(pix.received_cents,null);assert.equal(pix.change_cents,null);
+  s.addManualValue(A(s),'31,54');
+  assert.throws(()=>pay(s,'cash',randomUUID(),'30,00'),/Valor recebido menor/);
+  assert.throws(()=>pay(s,'cash',randomUUID(),'cinquenta'),/Use valor/);
+  assert.equal(items(s).length,1);assert.equal(s.db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,1);
+  assert.equal(pay(s,'cash',randomUUID(),'R$ 31,54').sale.change_cents,0);
+  s.addManualValue(A(s),'12,00');const blank=pay(s,'cash',randomUUID(),'').sale;assert.equal(blank.received_cents,null);assert.equal(blank.change_cents,null);
+  s.addManualValue(A(s),'12,00');const pix=pay(s,'pix',randomUUID(),'50,00').sale;assert.equal(pix.received_cents,null);assert.equal(pix.change_cents,null);
   assert.equal(s.cashSummary().expectedCents,10000+3154+3154+1200);
  }finally{f.clean();}
 });
-test('closing the shift checks the cart, computes the difference and blocks new sales',()=>{
+test('closing the shift checks open sales, computes the difference and blocks new sales',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('100,00',f.op);sell(s,'cash','30,00');sell(s,'pix','12,00');s.moveCash('supply','10,00','troco');
-  s.addManualValue('8,00');
-  assert.throws(()=>s.closeShift('140,00'),/Conclua ou limpe/);
-  s.clearCart();
+  s.addManualValue(A(s),'8,00');
+  assert.throws(()=>s.closeShift('140,00'),/Existe 1 venda em aberto \(Venda 03\)/);
+  s.discardDraftSale(A(s));
   const short=s.closeShift('135,00');
   assert.equal(short.expectedCents,14000);assert.equal(short.differenceCents,-500);
   assert.deepEqual(short.methods,{cash:3000,pix:1200,debit:0,credit:0});assert.equal(short.salesCount,2);
-  assert.throws(()=>s.addManualValue('1,00'),/caixa/);assert.throws(()=>s.addWeighed(300),/caixa/);
-  assert.throws(()=>s.checkout('cash',randomUUID()),/caixa/);
+  assert.throws(()=>s.addManualValue(A(s),'1,00'),/caixa/);assert.throws(()=>s.addWeighed(A(s),300),/caixa/);
+  assert.throws(()=>pay(s,'cash',randomUUID()),/caixa/);
   assert.throws(()=>s.closeShift('0'),/Não há caixa/);
   s.openShift('0',f.op);sell(s,'cash','10,00');
   assert.equal(s.closeShift('12,00').differenceCents,200);
@@ -132,32 +137,33 @@ test('operator is required, recorded and can be switched',()=>{
 test('manual weight and value entries keep service going without the scale',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('0',f.op);
-  s.addManualWeight('0,450');s.addManualValue('25,00');
-  const [w,v]=s.cart;
+  s.addManualWeight(A(s),'0,450');s.addManualValue(A(s),'25,00');
+  const [w,v]=items(s);
   assert.equal(w.grams,450);assert.equal(w.totalCents,2921);assert.equal(w.manual,true);assert.match(w.label,/digitado/);
   assert.equal(v.totalCents,2500);assert.equal(v.kind,'value');
-  for(const bad of ['0','16','abc','0,0001','-1',''])assert.throws(()=>s.addManualWeight(bad),/Peso|peso/);
-  for(const bad of ['0','abc','1000,01'])assert.throws(()=>s.addManualValue(bad));
-  const sale=s.checkout('pix',randomUUID()).sale;
-  const items=s.saleDetail(sale.id).items;assert.deepEqual(items.map(x=>x.manual),[1,1]);
+  for(const bad of ['0','16','abc','0,0001','-1',''])assert.throws(()=>s.addManualWeight(A(s),bad),/Peso|peso/);
+  for(const bad of ['0','abc','1000,01'])assert.throws(()=>s.addManualValue(A(s),bad));
+  const sale=pay(s,'pix',randomUUID()).sale;
+  const saved=s.saleDetail(sale.id).items;assert.deepEqual(saved.map(x=>x.manual),[1,1]);
   const r=s.report();assert.equal(r.manual.count,2);assert.equal(r.manual.totalCents,5421);assert.equal(r.grams,450);
  }finally{f.clean();}
 });
 test('cart corrections merge repeated products and respect stock',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('0',f.op);const p=s.product({name:'Água',price:'5,00',stock:3});
-  s.addManual(p.id);s.addManual(p.id);assert.equal(s.cart.length,1);assert.equal(s.cart[0].quantity,2);assert.equal(s.cart[0].totalCents,1000);
-  const key=s.cart[0].key;
-  assert.throws(()=>s.setQuantity(key,4),/Estoque insuficiente/);
-  s.setQuantity(key,1);assert.equal(s.cartTotal(),500);
-  s.addWeighed(300);assert.throws(()=>s.setQuantity(s.cart[1].key,2),/Item não encontrado/);
-  s.removeCart(key);assert.equal(s.cart.length,1);
+  s.addUnit(A(s),p.id);s.addUnit(A(s),p.id);assert.equal(items(s).length,1);assert.equal(items(s)[0].quantity,2);assert.equal(items(s)[0].totalCents,1000);
+  const key=items(s)[0].key;
+  assert.throws(()=>s.setQuantity(A(s),key,4),/Estoque insuficiente/);
+  s.setQuantity(A(s),key,1);assert.equal(s.getDraftSale(A(s)).totalCents,500);
+  s.addWeighed(A(s),300);assert.throws(()=>s.setQuantity(A(s),items(s)[1].key,2),/Só produtos avulsos/);
+  assert.throws(()=>s.setQuantity(A(s),'nao-existe',2),/Item não encontrado/);
+  s.removeDraftSaleItem(A(s),key);assert.equal(items(s).length,1);
  }finally{f.clean();}
 });
 test('canceling a sale returns stock and removes it from totals and the drawer',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('10,00',f.op);const p=s.product({name:'Água',price:'5,00',stock:5});
-  s.addManual(p.id,2);s.addWeighed(500);const sale=s.checkout('cash',randomUUID()).sale;
+  s.addUnit(A(s),p.id,2);s.addWeighed(A(s),500);const sale=pay(s,'cash',randomUUID()).sale;
   assert.equal(s.listProducts()[0].stock,3);
   assert.throws(()=>s.cancelSale(sale.id,''),/motivo/);
   const canceled=s.cancelSale(sale.id,'Peso errado');
@@ -170,17 +176,21 @@ test('canceling a sale returns stock and removes it from totals and the drawer',
   assert.equal(s.salesHistory({status:'canceled'}).sales.length,1);assert.equal(s.salesHistory({status:'done'}).sales.length,0);
  }finally{f.clean();}
 });
-test('cancel and correct puts the items back in the cart',()=>{
+test('cancel and correct moves the items to a new open sale of their own',()=>{
  const f=fixture();const s=f.db;try{
   s.openShift('0',f.op);const p=s.product({name:'Água',price:'5,00',stock:5});
-  s.addWeighed(840);s.addManual(p.id,1);const sale=s.checkout('debit',randomUUID()).sale;
-  s.addManualValue('1,00');assert.throws(()=>s.correctSale(sale.id,'Peso errado'),/Finalize ou limpe/);s.clearCart();
-  const {cart}=s.correctSale(sale.id,'Peso errado');
-  assert.deepEqual(cart.map(x=>[x.kind,x.grams,x.quantity,x.totalCents]),[['weight',840,undefined,5452],['unit',undefined,1,500]]);
-  s.removeCart(cart[0].key);s.addManualWeight('0,800');
-  const fixed=s.checkout('debit',randomUUID()).sale;assert.equal(fixed.total_cents,500+5192);
+  s.addWeighed(A(s),840);s.addUnit(A(s),p.id,1);const sale=pay(s,'debit').sale;
+  // Another customer is already being served on the scale: the correction does not touch that sale.
+  s.addManualValue(A(s),'1,00');const serving=A(s);
+  const {draft,selected}=s.correctSale(sale.id,'Peso errado');
+  assert.equal(selected,false);assert.equal(A(s),serving);assert.equal(draft.label,`Correção #${sale.id}`);
+  assert.deepEqual(draft.items.map(x=>[x.kind,x.grams,x.quantity,x.totalCents]),[['weight',840,undefined,5452],['unit',undefined,1,500]]);
+  assert.deepEqual(items(s).map(x=>x.totalCents),[100]);
+  s.removeDraftSaleItem(draft.id,draft.items[0].key);s.addManualWeight(draft.id,'0,800');
+  const fixed=s.checkoutDraftSale(draft.id,'debit',randomUUID()).sale;assert.equal(fixed.total_cents,500+5192);
   assert.equal(s.listProducts()[0].stock,4);
   const r=s.report();assert.equal(r.count,1);assert.equal(r.canceled.count,1);
+  assert.equal(A(s),serving);assert.deepEqual(items(s).map(x=>x.totalCents),[100]);
  }finally{f.clean();}
 });
 test('sales from a closed shift cannot be canceled',()=>{
@@ -231,5 +241,7 @@ test('a v0.1 database is migrated without losing sales',()=>{
   assert.equal(sale.received_cents,null);assert.equal(sale.change_cents,null);
   const r=s.report();assert.equal(r.count,1);assert.equal(r.totalCents,1234);assert.equal(r.byOperator[0].name,'Não identificado');
   assert.equal(s.cashSummary().shift.id,1);
+  // The shift that was open gets an empty sale, ready for the scale.
+  assert.equal(s.schemaVersion(),3);assert.deepEqual(s.listDraftSales().map(d=>[d.label,d.item_count]),[['Venda 01',0]]);assert.equal(A(s),s.listDraftSales()[0].id);
  }finally{f.clean();}
 });

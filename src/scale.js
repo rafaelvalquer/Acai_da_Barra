@@ -1,4 +1,5 @@
 'use strict';
+const {randomUUID}=require('node:crypto');
 const {ENQ,Prt5Parser}=require('./protocol');
 
 class ScaleDriver {
@@ -7,25 +8,30 @@ class ScaleDriver {
     this.SerialPort=options.SerialPort||null;this.pollMs=options.pollMs||500;
     this.port=null;this.timer=null;this.mode='offline';this.error='';
     this.state={status:'offline',grams:null,ready:false,armed:true,updatedAt:null,mode:'offline',lastError:''};
-    this.armed=true;this.lastGrams=null;this.consistent=0;this.zeroCount=0;this.lastRead=0;
+    // cycle names the current weighing (from one empty plate to the next): a cycle is captured at most once.
+    this.armed=true;this.cycle=randomUUID();this.lastGrams=null;this.consistent=0;this.zeroCount=0;this.lastRead=0;
     this.onReady=()=>{};
   }
   snapshot(){
     const fresh=Date.now()-this.lastRead<1900;
     return {...this.state,ready:this.armed && fresh && this.state.status==='stable' && this.consistent>=3 && this.state.grams>0,armed:this.armed,mode:this.mode,lastError:this.error};
   }
+  // The stable weight waiting to be captured, with its cycle id, without consuming it.
+  peek(){const s=this.snapshot();return s.ready?{grams:s.grams,captureId:this.cycle}:null;}
   consume(){
     const s=this.snapshot();
     if(!s.ready) return null;
     this.armed=false; return s.grams;
   }
+  // Nothing on the plate (stable zero) or no reading at all: the destination of the next weighing may change.
+  idle(){const s=this.snapshot();return this.mode==='offline'||['offline','waiting','invalid'].includes(s.status)||(s.status==='stable'&&s.grams===0);}
   sample(frame) {
     this.lastRead=Date.now();this.state.updatedAt=new Date().toISOString();
     this.state.status=frame.status;this.state.grams=frame.grams;
     if(frame.status==='stable') {
       this.consistent=(this.lastGrams===frame.grams)?this.consistent+1:1;
       this.lastGrams=frame.grams;
-      if(frame.grams===0){this.zeroCount++;if(this.zeroCount>=2)this.armed=true;}
+      if(frame.grams===0){this.zeroCount++;if(this.zeroCount>=2&&!this.armed){this.armed=true;this.cycle=randomUUID();}}
       else this.zeroCount=0;
     } else {this.consistent=0;this.zeroCount=0;this.lastGrams=null;}
     if(this.snapshot().ready) this.onReady();
@@ -34,7 +40,8 @@ class ScaleDriver {
     if(this.timer) clearInterval(this.timer);this.timer=null;
     const p=this.port;this.port=null;
     if(p && p.isOpen) try{p.close(()=>{});}catch(_){}
-    this.mode='offline';this.consistent=0;this.armed=true;this.zeroCount=0;
+    // armed is kept: a cup already captured is not captured again when the connection comes back.
+    this.mode='offline';this.consistent=0;this.zeroCount=0;
     this.state.status='offline';this.state.grams=null;this.state.updatedAt=null;this.lastRead=0;
   }
   demo(){
