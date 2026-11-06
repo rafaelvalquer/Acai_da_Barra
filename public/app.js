@@ -43,7 +43,7 @@ function ask(title,message,{confirmLabel='Confirmar',tone='primary',input=null,d
  d.returnValue='';d.showModal();(input?field:tone==='danger-solid'&&!alert?$('confirm-cancel'):$('confirm-ok')).focus();
  return new Promise(resolve=>d.addEventListener('close',()=>resolve(d.returnValue!=='ok'?false:input?field.value.trim():true),{once:true}));
 }
-async function get(path){const r=await fetch(path,{cache:'no-store'});const x=await r.json();if(!r.ok)throw Error(x.error||'Falha de conexão');return x;}
+async function get(path){const r=await fetch(path,{cache:'no-store'});const x=await r.json();if(!r.ok)throw Object.assign(Error(x.error||'Falha de conexão'),{status:r.status});return x;}
 async function post(path,obj={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':TOKEN},body:JSON.stringify(obj)});const x=await r.json();if(!r.ok)throw Error(x.error||'Falha ao salvar');return x;}
 async function run(path,obj,done){try{const r=await post(path,obj);if(done)done(r.result);await refresh();return r.result;}catch(e){flash(e.message,true);return null;}}
 function statusDisplay(s){return ({stable:'Estável',waiting:'Sem leitura',offline:'Desconectado',unstable:'Instável',negative:'Peso negativo',overload:'Sobrecarga',invalid:'Leitura inválida'})[s]||s;}
@@ -62,6 +62,9 @@ function renderCashBox(){
 function render(){
  if(!state.scale)return;
  const s=state.scale,c=state.config,shift=state.cash.shift,op=state.operator;
+ // Configurações shows a dot when a backup failed (red) or needs attention (yellow).
+ const alert=state.system?.alert;$('config-dot').className='nav-dot'+(alert?' '+alert:' hidden');
+ if(state.system?.version)$('app-version').textContent='v'+state.system.version;
  $('cash-badge').textContent=shift?'Caixa aberto':'Caixa fechado';$('cash-badge').className='pill '+(shift?'on':'warn');
  $('connection').textContent=s.mode==='demo'?'Simulador ativo':s.mode==='serial'?'Balança conectada':'Balança offline';$('connection').className='pill '+(s.mode==='offline'?'warn':'on');
  $('operator-name').textContent=op?op.name:'Selecionar';$('operator-btn').classList.toggle('warn',!op);
@@ -209,8 +212,15 @@ function renderChart(r){
  document.querySelectorAll('#report-chart .bar').forEach(el=>el.style.height=el.dataset.h+'%');
  $('report-chart-table').innerHTML=`<div class="table-wrap"><table class="table"><thead><tr><th>Dia</th><th>Vendas</th><th>Total</th></tr></thead><tbody>${r.byDay.map(d=>`<tr><td>${dayShort(d.day)}</td><td>${d.count}</td><td><strong>${money(d.totalCents)}</strong></td></tr>`).join('')}</tbody></table></div>`;
 }
-async function refresh(){try{state=await get('/api/state');render();}catch(e){flash(e.message,true);}}
-function tab(name){activeTab=name;document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('main section.panel').forEach(el=>el.classList.toggle('hidden',el.id!==name));window.scrollTo({top:0});if(name==='relatorios')renderReports();if(name==='historico')renderHistory();}
+// A problem with the server or the database shows as a banner on every screen (not a toast every 850 ms); it goes
+// away by itself when the next refresh works. The Admin area keeps working meanwhile.
+function systemBanner(e){
+ const b=$('system-banner');b.classList.toggle('hidden',!e);if(!e)return;
+ const offline=!e.status;$('system-banner-title').textContent=offline?'Sem comunicação com o Luminor PDV':e.status===503&&/Restaur|Copiando|Ativando|Voltando/.test(e.message)?'Aguarde um instante':'Vendas pausadas';
+ $('system-banner-text').textContent=offline?'Verifique se o programa está aberto neste computador. A tela volta sozinha quando ele responder.':e.message;
+}
+async function refresh(){try{state=await get('/api/state');systemBanner(null);render();}catch(e){systemBanner(e);}}
+function tab(name){activeTab=name;document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('main section.panel').forEach(el=>el.classList.toggle('hidden',el.id!==name));window.scrollTo({top:0});if(name==='relatorios')renderReports();if(name==='historico')renderHistory();if(name==='configuracoes')window.LuminorAdmin?.open();}
 async function boot(){try{TOKEN=(await get('/api/session')).token;await refresh();}catch(e){flash(e.message,true);}setInterval(refresh,850);
  $('hist-from').value=$('hist-to').value=localToday();
  document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.tab)));

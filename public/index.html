@@ -3,6 +3,7 @@
 <title>Luminor PDV — Açaí da Barra</title>
 <link rel="preload" href="/fonts/work-sans.woff2" as="font" type="font/woff2" crossorigin/>
 <link rel="stylesheet" href="/style.css"/>
+<link rel="stylesheet" href="/admin.css"/>
 </head><body>
 <svg class="sprite" aria-hidden="true" focusable="false">
  <symbol id="i-cup" viewBox="0 0 24 24"><path d="M5 9.5h14l-1.5 10.2a1.6 1.6 0 0 1-1.6 1.3H8.1a1.6 1.6 0 0 1-1.6-1.3L5 9.5z"/><path d="M4 9.5h16"/><path d="M7.5 9.5a4.5 4.5 0 0 1 9 0"/><path d="M13.5 4.5 16 2"/></symbol>
@@ -38,6 +39,18 @@
  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2v-19z"/><path d="M9 7.5h6M9 11.5h6M9 15.5h3"/></symbol>
  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/></symbol>
  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+ <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+ <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+ <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10a4.5 4.5 0 0 0 .6-9A6 6 0 0 0 6.1 10 4.3 4.3 0 0 0 7 18.5z"/></symbol>
+ <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.5 4 5.5v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10v-6l-8-3z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+ <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L3.5 17.5a2.1 2.1 0 0 0 3 3l5.9-5.9a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6z"/></symbol>
+ <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+ <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17"/></symbol>
+ <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17"/></symbol>
+ <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4"/><path d="m10.5 12.5 9-9M16 7l3 3M14 9l2 2"/></symbol>
+ <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></symbol>
+ <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></symbol>
+ <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></symbol>
 </svg>
 
 <header class="topbar">
@@ -59,10 +72,12 @@
  <div class="sidebar-head mt">Configuração</div>
  <button class="nav" data-tab="funcionarios" title="Funcionários"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><span class="label">Funcionários</span><span class="short">Equipe</span></button>
  <button class="nav" data-tab="balanca" title="Balança Toledo"><svg class="i" aria-hidden="true"><use href="#i-scale"/></svg><span class="label">Balança Toledo</span><span class="short">Balança</span></button>
- <div class="sidebar-note">MVP de demonstração.<br/>Não emite documentos fiscais.</div>
+ <button class="nav" data-tab="configuracoes" title="Configurações" id="nav-config"><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg><span class="label">Configurações</span><span class="short">Ajustes</span><span class="nav-dot hidden" id="config-dot" aria-hidden="true"></span></button>
+ <div class="sidebar-note">Luminor PDV <span id="app-version"></span><br/>Não emite documentos fiscais.</div>
 </nav>
 
 <main class="content">
+<div class="banner system-banner hidden" id="system-banner" role="alert"><span class="banner-icon"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg></span><div><strong id="system-banner-title">Sistema indisponível</strong><span id="system-banner-text"></span></div></div>
 
 <section id="vendas" class="panel">
  <div class="heading"><div><span class="eyebrow">Frente de caixa</span><h1>Pesou, lançou, vendeu.</h1><p>O peso estabiliza, o sistema calcula e o copo já entra na venda.</p></div><span class="status-note" id="scale-note">Balança não conectada</span></div>
@@ -220,7 +235,24 @@
  </div>
 </section>
 
+<section id="configuracoes" class="panel hidden">
+ <div class="heading"><div><span class="eyebrow">Configurações</span><h1>Luminor PDV</h1><p>Área administrativa do sistema: banco de dados, backups, segurança e manutenção.</p></div></div>
+ <div id="admin-root" class="admin-root" aria-live="polite"></div>
+</section>
+
 </main></div>
+
+<dialog id="admin-dialog" class="modal" aria-labelledby="admin-dialog-title">
+ <form id="admin-dialog-form" novalidate>
+  <span class="modal-icon" id="admin-dialog-icon"></span>
+  <h2 id="admin-dialog-title"></h2>
+  <p id="admin-dialog-message"></p>
+  <div id="admin-dialog-details" class="modal-details"></div>
+  <label class="modal-field" id="admin-dialog-field"><span>Senha do administrador</span><input id="admin-dialog-password" type="password" autocomplete="current-password" maxlength="128"/></label>
+  <p class="adm-error hidden" id="admin-dialog-error" role="alert"></p>
+  <div class="modal-actions"><button type="submit" class="primary" id="admin-dialog-ok">Confirmar</button><button type="button" class="secondary" id="admin-dialog-cancel">Voltar</button></div>
+ </form>
+</dialog>
 
 <dialog id="confirm-dialog" class="modal" aria-labelledby="confirm-title">
  <form method="dialog">
@@ -270,5 +302,5 @@
  <div class="modal-actions" id="sale-actions"><button class="primary" id="btn-sale-correct"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Cancelar e corrigir</button><button class="danger" id="btn-sale-cancel"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Cancelar venda</button></div>
 </dialog>
 
-<div id="toast" role="status" aria-live="polite"></div><script src="/app.js" defer></script>
+<div id="toast" role="status" aria-live="polite"></div><script src="/app.js" defer></script><script src="/admin.js" defer></script>
 </body></html>

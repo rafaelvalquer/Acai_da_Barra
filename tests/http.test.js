@@ -1,16 +1,16 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),http=require('node:http');
 const {randomUUID}=require('node:crypto');
-const {Store}=require('../src/db');const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');
+const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');const {tempStore,count}=require('./helpers');
 // Real HTTP server on a random port with a throwaway database, exercised the way the browser does.
 async function boot(){
- const dir=fs.mkdtempSync(path.join(os.tmpdir(),'luminor-http-'));const db=new Store(path.join(dir,'http.sqlite'));const scale=new ScaleDriver();
+ const box=await tempStore('luminor-http-');const db=box.s;const scale=new ScaleDriver();
  const server=createServer({db,scale});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const base=`http://127.0.0.1:${server.address().port}`;
  const get=async p=>{const r=await fetch(base+p);return {status:r.status,body:await r.json()};};
  const {token}=(await get('/api/session')).body;
  const post=async(p,body={},headers={})=>{const r=await fetch(base+p,{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':token,...headers},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
- return {db,scale,server,base,get,post,async close(){scale.disconnect();server.closeAllConnections();await new Promise(r=>server.close(r));db.close();fs.rmSync(dir,{recursive:true,force:true});}};
+ return {db,scale,server,base,get,post,async close(){scale.disconnect();server.closeAllConnections();await new Promise(r=>server.close(r));await box.clean();}};
 }
 async function openWithOperator(t,opening='0,00'){const op=(await t.post('/api/employees/save',{name:'Carla'})).body.result.id;assert.equal((await t.post('/api/shift/open',{opening,operatorId:op})).status,200);return op;}
 
@@ -46,7 +46,7 @@ test('full flow: automatic weighing, product, payment and closing',async()=>{
   const paid=(await t.post('/api/checkout',{saleId,method:'cash',uuid:randomUUID(),received:'110,00',revision:state.activeSale.revision})).body.result;const sale=paid.sale;
   assert.equal(sale.total_cents,10625);assert.equal(sale.received_cents,11000);assert.equal(sale.change_cents,375);assert.equal(sale.draft_sale_id,saleId);
   assert.notEqual(paid.activeSaleId,saleId);
-  assert.equal(t.db.db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,1);
+  assert.equal(await count(t.db,'sales'),1);
   const next=await active(t);await t.post('/api/cart/manual-value',{saleId:next,amount:'18,00'});
   const pix=(await t.post('/api/checkout',{saleId:next,method:'pix',uuid:randomUUID()})).body.result.sale;
   assert.equal(pix.total_cents,1800);
@@ -69,7 +69,7 @@ test('double click on charge records a single sale',async()=>{
   saleId=await active(t);await t.post('/api/cart/manual-value',{saleId,amount:'30,00'});
   const different=await Promise.all([t.post('/api/checkout',{saleId,method:'cash',uuid:randomUUID()}),t.post('/api/checkout',{saleId,method:'cash',uuid:randomUUID()})]);
   assert.deepEqual(different.map(r=>r.status),[200,200]);assert.equal(different[0].body.result.sale.id,different[1].body.result.sale.id);
-  assert.equal(t.db.db.prepare('SELECT COUNT(*) AS n FROM sales').get().n,2);
+  assert.equal(await count(t.db,'sales'),2);
   assert.equal((await t.get('/api/report')).body.totalCents,5000);
  }finally{await t.close();}
 });

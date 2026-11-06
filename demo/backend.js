@@ -1,4 +1,4 @@
-// Runs the PDV server inside the page: /api/* requests go to the same server.js, db.js and scale.js
+// Runs the PDV server inside the page: /api/* requests go to the same server.js, store and scale.js
 // used in the store, over an in-browser SQLite database saved in this browser's localStorage.
 const KEY='luminor-pdv-demo';const PORT=3187;const DAY_MS=86400000;
 const NO_SERIAL='Na demonstração online a balança é simulada. No computador da loja, a Toledo Prix 3 Fit conecta pela porta serial.';
@@ -35,14 +35,16 @@ const backend=(async()=>{
     'node:crypto':{randomUUID:()=>crypto.randomUUID(),randomBytes:n=>{const a=crypto.getRandomValues(new Uint8Array(n));return {toString:()=>Array.from(a,b=>b.toString(16).padStart(2,'0')).join('')};}},
     'node:http':{createServer:handler=>({handler,address:()=>({port:PORT})})}
   });
-  const {Store}=require('./db');const {ScaleDriver}=require('./scale');const {createServer}=require('./server');
+  const {PdvStore}=require('./store');const {SQLiteAdapter}=require('./database/adapters/SQLiteAdapter');
+  const {ScaleDriver}=require('./scale');const {createServer}=require('./server');
   const saved=readSaved();
   DatabaseSync.load=saved?.db?fromBase64(saved.db):new Uint8Array(await (await fetch('/demo-seed.sqlite',{cache:'no-store'})).arrayBuffer());
-  const db=new Store();
-  if(!saved)moveToToday(db.db);
+  const raw=new DatabaseSync();raw.exec('PRAGMA foreign_keys=ON');
+  if(!saved)moveToToday(raw);
+  const db=await PdvStore.open(new SQLiteAdapter(raw));
   const scale=new ScaleDriver();scale.demo();
   const {handler}=createServer({db,scale});
-  const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({db:toBase64(db.db.export())}));}catch(_){}};
+  const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({db:toBase64(raw.export())}));}catch(_){}};
   if(!saved)save();
   return {save,call:(method,url,headers,body)=>new Promise(resolve=>{
     const res={status:200,writeHead(status){this.status=status;},end(text){resolve({status:this.status,text});}};

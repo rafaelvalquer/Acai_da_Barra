@@ -2,37 +2,37 @@
 // Example data for the online demo: six weeks of closed shifts plus today's open shift.
 // Dates are relative to the build day; the browser moves them forward to the visitor's day.
 const {randomUUID}=require('node:crypto');
-const {Store}=require('../src/db');
+const {PdvStore}=require('../src/store');const {SQLiteAdapter}=require('../src/database/adapters/SQLiteAdapter');
 
 const ZONE_OFFSET_H=3; // America/Sao_Paulo is UTC-3 all year.
 const DAYS=42;
 const localToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 
-function seed(filename){
-  const s=new Store(filename);
+async function seed(filename){
+  const s=await PdvStore.open(SQLiteAdapter.open(filename));
   let state=20261103;const rnd=()=>{state=(state*1103515245+12345)%2147483648;return state/2147483648;};
   const pick=a=>a[Math.floor(rnd()*a.length)];const between=(a,b)=>a+Math.floor(rnd()*(b-a+1));
   const brl=c=>(c/100).toFixed(2).replace('.',',');
-  const upd=(sql,...a)=>s.db.prepare(sql).run(...a);
+  const raw=s.adapter.db;const upd=(sql,...a)=>raw.prepare(sql).run(...a);
   const today=localToday();const base=Date.UTC(+today.slice(0,4),+today.slice(5,7)-1,+today.slice(8,10));
   const at=(offset,h,min)=>new Date(base+offset*86400000+(h+ZONE_OFFSET_H)*3600000+min*60000).toISOString();
 
-  const ops=['Ana Paula','Bruno Lima','Carla Souza','Diego Martins'].map(name=>s.saveEmployee({name}).id);
-  const prods=[['Água sem gás','5,00'],['Refrigerante lata','7,00'],['Água de coco','8,00'],['Adicional de cobertura','4,00']].map(([name,price])=>s.product({name,price,stock:9999}).id);
+  const ops=[];for(const name of ['Ana Paula','Bruno Lima','Carla Souza','Diego Martins'])ops.push((await s.saveEmployee({name})).id);
+  const prods=[];for(const [name,price] of [['Água sem gás','5,00'],['Refrigerante lata','7,00'],['Água de coco','8,00'],['Adicional de cobertura','4,00']])prods.push((await s.product({name,price,stock:9999})).id);
   const method=()=>{const r=rnd();return r<.47?'pix':r<.67?'debit':r<.84?'credit':'cash';};
   const reasons=['Cliente desistiu','Forma de pagamento errada','Cliente trocou o pedido'];
 
-  function day(offset,{count,firstHour=12,lastHour=21,op,close=true,cancel=rnd()<.55,sangria}){
+  async function day(offset,{count,firstHour=12,lastHour=21,op,close=true,cancel=rnd()<.55,sangria}){
     const dow=new Date(base+offset*86400000).getUTCDay();op=op||ops[(offset+dow+DAYS)%ops.length];
-    s.setOperator(op);s.openShift('150,00',op);const shiftId=s.shift().id;
+    await s.setOperator(op);await s.openShift('150,00',op);const shiftId=(await s.shift()).id;
     upd('UPDATE shifts SET opened_at=? WHERE id=?',at(offset,firstHour-1,30),shiftId);
     const ids=[];
     for(let i=0;i<count;i++){
-      const sale=s.activeSaleId();
-      for(let c=rnd()<.22?2:1;c>0;c--){if(rnd()<.05)s.addManualWeight(sale,'0,'+String(between(30,75)*10).padStart(3,'0'));else s.addWeighed(sale,between(26,82)*10);}
-      if(rnd()<.33)s.addUnit(sale,pick(prods),rnd()<.8?1:2);
+      const sale=await s.activeSaleId();
+      for(let c=rnd()<.22?2:1;c>0;c--){if(rnd()<.05)await s.addManualWeight(sale,'0,'+String(between(30,75)*10).padStart(3,'0'));else await s.addWeighed(sale,between(26,82)*10);}
+      if(rnd()<.33)await s.addUnit(sale,pick(prods),rnd()<.8?1:2);
       // Cash customers hand over the next R$ 10 up; computed without rnd(), so the rest of the data stays the same.
-      const m=method();ids.push(s.checkoutDraftSale(sale,m,randomUUID(),m==='cash'?brl(Math.ceil(s.getDraftSale(sale).totalCents/1000)*1000):undefined).sale.id);
+      const m=method();ids.push((await s.checkoutDraftSale(sale,m,randomUUID(),m==='cash'?brl(Math.ceil((await s.getDraftSale(sale)).totalCents/1000)*1000):undefined)).sale.id);
     }
     const span=(lastHour-firstHour)*60+50;
     ids.forEach((id,i)=>{const t=Math.floor((i+rnd()*.8)*span/ids.length);const when=at(offset,firstHour+Math.floor(t/60),t%60);upd('UPDATE sales SET created_at=? WHERE id=?',when,id);
@@ -40,38 +40,38 @@ function seed(filename){
       const started=new Date(Date.parse(when)-3*60000).toISOString();
       upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE sale_id=?',started,when,when,id);
       upd('UPDATE draft_sale_items SET created_at=? WHERE draft_sale_id=(SELECT id FROM draft_sales WHERE sale_id=?)',started,id);});
-    if(cancel&&ids.length>6){const id=ids[between(2,ids.length-2)];s.cancelSale(id,pick(reasons));
-      const t=s.db.prepare('SELECT created_at FROM sales WHERE id=?').get(id).created_at;upd('UPDATE sales SET canceled_at=? WHERE id=?',new Date(Date.parse(t)+4*60000).toISOString(),id);}
-    const cash=s.cashSummary().expectedCents;const out=sangria||(cash>35000?Math.floor((cash-15000)/5000)*5000:0);
-    if(out){s.moveCash('withdrawal',brl(out),'Retirada para o cofre');upd('UPDATE cash_events SET created_at=? WHERE shift_id=?',at(offset,close?17:firstHour+1,40),shiftId);}
+    if(cancel&&ids.length>6){const id=ids[between(2,ids.length-2)];await s.cancelSale(id,pick(reasons));
+      const t=raw.prepare('SELECT created_at FROM sales WHERE id=?').get(id).created_at;upd('UPDATE sales SET canceled_at=? WHERE id=?',new Date(Date.parse(t)+4*60000).toISOString(),id);}
+    const cash=(await s.cashSummary()).expectedCents;const out=sangria||(cash>35000?Math.floor((cash-15000)/5000)*5000:0);
+    if(out){await s.moveCash('withdrawal',brl(out),'Retirada para o cofre');upd('UPDATE cash_events SET created_at=? WHERE shift_id=?',at(offset,close?17:firstHour+1,40),shiftId);}
     if(!close)return shiftId;
     const diff=rnd()<.7?0:pick([-250,-100,-50,100,200]);
-    s.closeShift(brl(s.cashSummary().expectedCents+diff));const closedAt=at(offset,22,between(2,14));upd('UPDATE shifts SET closed_at=? WHERE id=?',closedAt,shiftId);
+    await s.closeShift(brl((await s.cashSummary()).expectedCents+diff));const closedAt=at(offset,22,between(2,14));upd('UPDATE shifts SET closed_at=? WHERE id=?',closedAt,shiftId);
     // The empty sale left waiting on the scale is discarded when the shift closes.
     upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE shift_id=? AND sale_id IS NULL',closedAt,closedAt,closedAt,shiftId);
     upd('UPDATE draft_sale_events SET created_at=? WHERE draft_sale_id IN (SELECT id FROM draft_sales WHERE shift_id=? AND sale_id IS NULL)',closedAt,shiftId);
   }
   const volume=[52,30,33,36,38,46,64]; // Sun..Sat
-  for(let offset=-DAYS;offset<0;offset++){const dow=new Date(base+offset*86400000).getUTCDay();day(offset,{count:Math.round(volume[dow]*(.85+rnd()*.3))});}
+  for(let offset=-DAYS;offset<0;offset++){const dow=new Date(base+offset*86400000).getUTCDay();await day(offset,{count:Math.round(volume[dow]*(.85+rnd()*.3))});}
   // Today: the shift is open with a few sales, so the visitor can weigh right away.
-  const todayShift=day(0,{count:9,firstHour:12,lastHour:13,op:ops[0],close:false,cancel:true,sangria:5000});
-  s.setOperator(ops[0]);
+  const todayShift=await day(0,{count:9,firstHour:12,lastHour:13,op:ops[0],close:false,cancel:true,sangria:5000});
+  await s.setOperator(ops[0]);
   // Two customers still being served, so the visitor sees the tabs; the scale weighs for a third, empty sale.
   const waiting=[['Família Oliveira',[418],[[prods[0],1]],52],['Mesa da varanda',[352,296],[],55]];
   for(const [label,grams,units,minute] of waiting){
-    const sale=s.activeSaleId();s.renameDraftSale(sale,label);
-    for(const g of grams)s.addWeighed(sale,g);for(const [id,qty] of units)s.addUnit(sale,id,qty);
+    const sale=await s.activeSaleId();await s.renameDraftSale(sale,label);
+    for(const g of grams)await s.addWeighed(sale,g);for(const [id,qty] of units)await s.addUnit(sale,id,qty);
     upd('UPDATE draft_sales SET created_at=?,updated_at=? WHERE id=?',at(0,13,minute),at(0,13,minute+1),sale);
     upd('UPDATE draft_sale_items SET created_at=? WHERE draft_sale_id=?',at(0,13,minute+1),sale);
-    s.createDraftSale();
+    await s.createDraftSale();
   }
-  upd('UPDATE draft_sales SET created_at=?,updated_at=? WHERE id=?',at(0,13,58),at(0,13,58),s.activeSaleId());
+  upd('UPDATE draft_sales SET created_at=?,updated_at=? WHERE id=?',at(0,13,58),at(0,13,58),await s.activeSaleId());
   upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE shift_id=? AND status<>? AND sale_id IS NULL',at(0,13,50),at(0,13,50),at(0,13,50),todayShift,'open');
   for(const [id,stock] of prods.map((id,i)=>[id,[38,24,11,57][i]]))upd('UPDATE products SET stock=? WHERE id=?',stock,id);
-  s.db.prepare('INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)').run('demo_seed_day',today);
+  raw.prepare('INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)').run('demo_seed_day',today);
   // sql.js opens plain database files; leave WAL so the bytes are self-contained.
-  s.db.exec('PRAGMA journal_mode=DELETE');
-  s.close();
+  raw.exec('PRAGMA journal_mode=DELETE');
+  await s.close();
   return today;
 }
 module.exports={seed};
