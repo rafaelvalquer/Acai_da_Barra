@@ -22,7 +22,7 @@ fs.rmSync(tmp,{recursive:true,force:true});
 // shop floor uses goes in: backups, installation files and PostgreSQL (src/system.js and friends) stay out.
 const SRC=path.join(ROOT,'src');
 const walk=dir=>fs.readdirSync(path.join(SRC,dir)).filter(f=>f.endsWith('.js')).map(f=>dir+'/'+f);
-const files=['protocol.js','scale.js','server.js','store.js',...walk('services').filter(f=>!f.includes('BackupService')),'database/Mutex.js','database/schema.js',
+const files=['protocol.js','scale.js','server.js','store.js',...walk('services').filter(f=>!f.includes('BackupService')),'database/Mutex.js','database/schema.js','database/catalog.js',
   ...walk('database/repositories'),'database/adapters/SQLiteAdapter.js','database/migrations/sqlite/index.js'];
 const sources=files.map(f=>`${JSON.stringify('/src/'+f)}:function(module,exports,require,__dirname){${read(path.join(SRC,f))}\n}`).join(',\n');
 fs.writeFileSync(path.join(OUT,'demo.js'),`(()=>{'use strict';

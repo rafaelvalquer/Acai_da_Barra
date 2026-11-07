@@ -2,7 +2,7 @@
 // SQLite schema. The v0.1 tables come first; PRAGMA user_version records how many numbered steps ran. Each step is
 // idempotent, so a database that already got some of these columns before the numbering existed converges to the
 // same schema, and existing rows are always kept.
-const {randomUUID}=require('node:crypto');
+const {randomUUID}=require('node:crypto');const {classifyProducts}=require('../../catalog');
 const BASE=`CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,price_cents INTEGER NOT NULL,stock INTEGER NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1);
   CREATE TABLE IF NOT EXISTS shifts(id INTEGER PRIMARY KEY AUTOINCREMENT,opened_at TEXT NOT NULL,opening_cents INTEGER NOT NULL,closed_at TEXT, counted_cents INTEGER,expected_cents INTEGER, difference_cents INTEGER);
@@ -40,11 +40,20 @@ const STEPS=[
     }
     await q.exec(`CREATE INDEX IF NOT EXISTS sales_shift ON sales(shift_id); CREATE INDEX IF NOT EXISTS cash_events_shift ON cash_events(shift_id);
       CREATE INDEX IF NOT EXISTS draft_events_sale ON draft_sale_events(draft_sale_id); CREATE INDEX IF NOT EXISTS draft_items_seq ON draft_sale_items(seq);`);
+  },
+  // 5: category, sales channel (shop counter or delivery) and favorite, for finding products fast at the till. Names,
+  // prices and stock stay as they are; the first classification comes from the name (src/database/catalog.js).
+  async q=>{
+    await addColumn(q,'products','category',"TEXT NOT NULL DEFAULT 'Outros'");
+    await addColumn(q,'products','channel',"TEXT NOT NULL DEFAULT 'loja' CHECK (channel IN ('loja','delivery'))");
+    await addColumn(q,'products','is_favorite','INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0,1))');
+    await classifyProducts(q);
   }
 ];
-async function migrateSqlite(adapter){
+// until: stops at that version (tests and old backups rebuilt at the version they were made in).
+async function migrateSqlite(adapter,{until=STEPS.length}={}){
   await adapter.exec(BASE);
-  for(let v=await adapter.schemaVersion();v<STEPS.length;v++)
+  for(let v=await adapter.schemaVersion();v<Math.min(until,STEPS.length);v++)
     await adapter.transaction(async q=>{await STEPS[v](q);await q.exec(`PRAGMA user_version=${v+1}`);});
 }
 module.exports={migrateSqlite,SQLITE_VERSION:STEPS.length};

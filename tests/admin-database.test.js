@@ -1,6 +1,7 @@
 'use strict';
 // The Admin area's database assistant: connection test, preparation and the cloud copy turned on and off, plus the
 // old cloud mode while it waits to move to the local database. The "Supabase" is PGlite (tests/cloud-helpers.js).
+const {SCHEMA_VERSION}=require('../src/database/schema');
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),path=require('node:path');
 const {isEmpty}=require('../src/database/migration-tools/ImportToPostgres');
 const {fingerprint}=require('../src/database/DatabaseMigrationService');const {decodeBackup}=require('../src/backup/BackupFormat');
@@ -14,7 +15,7 @@ test('the cloud copy is turned on in three steps, the till never stops, and its 
   const home=newHome();const cloud=await fakeCloud();const t=await boot(home,{connect:cloud.connect,syncTiming:FAST});let t2;try{
     await setupAdmin(t);await openShift(t);await sell(t,'10,00');await sell(t,'5,50','cash');await closeShift(t);
     let info=(await t.get('/api/admin/database')).body;
-    assert.equal(info.provider,'sqlite');assert.equal(info.sqlite.active,true);assert.ok(info.sqlite.bytes>0);assert.equal(info.schemaVersion,4);assert.equal(info.pending,null);
+    assert.equal(info.provider,'sqlite');assert.equal(info.sqlite.active,true);assert.ok(info.sqlite.bytes>0);assert.equal(info.schemaVersion,SCHEMA_VERSION);assert.equal(info.pending,null);
     assert.deepEqual([info.sync.enabled,info.sync.state],[false,'desligado']);
     assert.equal(ok(await t.post('/api/admin/database/integrity')).ok,true);
     // Nothing can be turned on before a successful test, nor before the cloud is prepared.

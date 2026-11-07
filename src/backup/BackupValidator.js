@@ -73,11 +73,12 @@ class BackupValidator {
       if(!database.subarray(0,16).equals(SQLITE_MAGIC))fail('O conteúdo do backup não é um banco SQLite.','corrompido');
       fs.writeFileSync(staged,database);
     }else{
-      // The rows are written into a new local database by the PDV's own code, then checked like any other.
+      // The rows are written into a new local database by the PDV's own code, at the version they were exported in
+      // (4 or later: the first with exports), then checked and brought to the current schema like any other.
       let data;try{data=JSON.parse(database.toString('utf8'));}catch(_){fail('O conteúdo do backup está corrompido.','corrompido');}
-      if(data.schemaVersion!==SCHEMA_VERSION)fail(`Este backup é de outra versão do banco (versão ${data.schemaVersion}).`,'incompativel');
+      if(data.schemaVersion!==version||version<4)fail(`Este backup é de outra versão do banco (versão ${data.schemaVersion}).`,'incompativel');
       const b=SQLiteAdapter.open(staged,{journal:'DELETE'});
-      try{await migrateSqlite(b);await replaceData(b,{format:'luminor-pdv-export',...data});}catch(e){fail(e.message,e.code||'estrutura');}finally{await b.close();}
+      try{await migrateSqlite(b,{until:version});await replaceData(b,{format:'luminor-pdv-export',...data},{version});}catch(e){fail(e.message,e.code||'estrutura');}finally{await b.close();}
     }
     const a=SQLiteAdapter.open(staged,{journal:'DELETE'});let summary;
     try{

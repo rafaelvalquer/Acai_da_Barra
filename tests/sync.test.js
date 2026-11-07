@@ -5,6 +5,7 @@ const test=require('node:test'),assert=require('node:assert/strict');const fs=re
 const {randomUUID}=require('node:crypto');const {DatabaseSync}=require('node:sqlite');
 const {decodeBackup}=require('../src/backup/BackupFormat');
 const {isPostgres,until,wait}=require('./helpers');
+const {SCHEMA_VERSION}=require('../src/database/schema');
 const {boot,newHome,ok,setupAdmin,login,openShift,active,sell,closeShift,backup,backupFile,keyOf,restore,salesCount,adminAudit}=require('./app-helpers');
 const {confirm,FAST,fakeCloud,connectTest,syncOf,settled,sameAsCloud,withCopy,oldCloudMode}=require('./cloud-helpers');
 const SKIP=isPostgres&&'a cópia na nuvem usa o próprio PostgreSQL de teste';
@@ -165,5 +166,38 @@ test('uma alteração feita direto na nuvem é percebida na conferência e corri
     await until(async()=>Number((await cloud.db.query('SELECT SUM(total_cents) AS n FROM sales')).rows[0].n)===1000,8000);
     await settled(t);await sameAsCloud(t,cloud);
     assert.ok((await adminAudit(t)).includes('nuvem_divergente'));await until(()=>syncOf(t).lastCheck?.ok===true);
+  }finally{await t.stop();}
+});
+
+test('P14 categoria, canal e favorito chegam à nuvem',{skip:SKIP},async()=>{
+  const cloud=await fakeCloud();const t=await withCopy(cloud);try{
+    const id=ok(await t.post('/api/products/save',{name:'Açaí 500 ml (delivery)',price:'24,00',stock:5})).id;
+    ok(await t.post('/api/products/favorite',{id,favorite:true}));
+    ok(await t.post('/api/products/save',{name:'Turbo Fitness - Pré-Treino',price:'22,00',stock:3,category:'Açaís'}));
+    await settled(t);await sameAsCloud(t,cloud);
+    const rows=(await cloud.db.query('SELECT name,category,channel,is_favorite FROM products ORDER BY id')).rows;
+    assert.deepEqual(rows.map(r=>[r.name,r.category,r.channel,r.is_favorite]),[['Açaí 500 ml (delivery)','Açaís','delivery',1],['Turbo Fitness - Pré-Treino','Açaís','loja',0]]);
+  }finally{await t.stop();}
+});
+
+test('P14 uma nuvem preparada pela versão anterior é atualizada ao conectar e recebe tudo de novo; uma mais nova para o envio',{skip:SKIP},async()=>{
+  const cloud=await fakeCloud();let t=await withCopy(cloud);try{
+    await openShift(t);ok(await t.post('/api/products/save',{name:'Coca-Cola 350 ml (delivery)',price:'8,00',stock:6}));await sell(t,'10,00');await settled(t);
+    await t.stop();
+    // The cloud as the previous version left it: products without the new columns, schema at version 4.
+    await cloud.db.exec('ALTER TABLE products DROP COLUMN category, DROP COLUMN channel, DROP COLUMN is_favorite; DELETE FROM schema_migrations WHERE version=5;');
+    t=await boot(t.home,{connect:cloud.connect,syncTiming:FAST});
+    // Nothing new was sold: the start alone reaches the cloud, updates it and sends everything again.
+    await until(()=>t.log.lines.some(l=>/atualizado da versão 4 para a 5/.test(l)));await settled(t);await sameAsCloud(t,cloud);
+    assert.equal(Number((await cloud.db.query('SELECT MAX(version) AS v FROM schema_migrations')).rows[0].v),SCHEMA_VERSION);
+    assert.deepEqual((await cloud.db.query('SELECT category,channel FROM products')).rows,[{category:'Bebidas',channel:'delivery'}]);
+    assert.ok(t.log.lines.some(l=>/atualizado da versão 4 para a 5/.test(l)));assert.ok((await adminAudit(t)).includes('nuvem_atualizada'));
+    await t.stop();
+    // Another PDV, already updated to a newer version, prepared the cloud: this one keeps selling and sends nothing.
+    await cloud.db.exec(`INSERT INTO schema_migrations(version,applied_at) VALUES(${SCHEMA_VERSION+1},now())`);
+    t=await boot(t.home,{connect:cloud.connect,syncTiming:FAST});
+    await sell(t,'5,00');await until(()=>syncOf(t).problem?.kind==='erro');
+    assert.match(syncOf(t).problem.message,/versão mais nova do PDV/);
+    assert.equal(await salesCount(t),2);assert.equal(await cloud.count('sales'),1);
   }finally{await t.stop();}
 });

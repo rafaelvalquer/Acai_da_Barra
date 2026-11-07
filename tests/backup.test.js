@@ -2,6 +2,7 @@
 // Backups, restores and the installation's data folder (plan tests D01–D16), on a real server with a throwaway
 // PDV_HOME, through the Admin area's routes (/api/admin). SQLite only: file backups and restores exist for the
 // local database; the cloud database's backups are in tests/admin-database.test.js.
+const {SCHEMA_VERSION}=require('../src/database/schema');
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),path=require('node:path');
 const {DatabaseSync}=require('node:sqlite');
 const {decodeBackup,encodeBackup,sha256,formatKey,newKey,keyId}=require('../src/backup/BackupFormat');
@@ -26,7 +27,7 @@ test('D01 a backup with the shift open is consistent, includes the open shift an
     const [b]=await Promise.all([backup(t),sell(t,'3,00')]);
     assert.match(b.name,/^luminor-pdv_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_manual\.luminorbackup$/);
     const {manifest,header}=decodeBackup(backupFile(t,b.name),keyOf(t));
-    assert.equal(header.format,'luminor-pdv-backup');assert.equal(manifest.schemaVersion,4);assert.equal(manifest.app.version,t.config.version);
+    assert.equal(header.format,'luminor-pdv-backup');assert.equal(manifest.schemaVersion,SCHEMA_VERSION);assert.equal(manifest.app.version,t.config.version);
     assert.equal(manifest.summary.shifts.open,1);assert.ok([2,3].includes(manifest.summary.sales.done));
     assert.ok(manifest.summary.counts.sales===manifest.summary.sales.done);
     // The Admin credentials are not part of a commercial backup.
@@ -213,7 +214,7 @@ test('D10 an update keeps the data: the old program folder database is copied on
   old.prepare("INSERT INTO sale_items(sale_id,kind,label,grams,unit_cents,total_cents) VALUES(1,'weight','Açaí por peso',206,5990,1234)").run();old.close();
   const hash=sha256(fs.readFileSync(legacy));
   const home=newHome();const t=await boot(home,{env:{PDV_LEGACY_SQLITE:legacy}});try{
-    assert.equal(await salesCount(t),1);assert.equal(await t.app.db.schemaVersion(),4);assert.equal((await t.app.db.getConfig()).priceKgCents,5990);
+    assert.equal(await salesCount(t),1);assert.equal(await t.app.db.schemaVersion(),SCHEMA_VERSION);assert.equal((await t.app.db.getConfig()).priceKgCents,5990);
     assert.equal(sha256(fs.readFileSync(legacy)),hash);assert.ok(t.log.lines.some(l=>/não foi alterado/.test(l)));
     await setupAdmin(t);await openShift(t);await sell(t);
   }finally{await t.stop();}
@@ -333,4 +334,33 @@ test('the backup file is authenticated: a wrong key and a changed byte are both 
   for(const i of [30,file.length-60,file.length-1]){const bad=Buffer.from(file);bad[i]^=1;assert.throws(()=>decodeBackup(bad,key),/corrompido|alterado|backup/);}
   assert.equal(keyId(key),decodeBackup(file,key).header.keyId);
   assert.ok(!file.includes(Buffer.from('SQLite format 3')),'conteúdo legível no arquivo');
+});
+
+// Products of a backup made before categories existed: they get the category of their name, the channel of the
+// "(delivery)" suffix and no favorite, and the rest comes back as it was.
+const productsOf=async t=>(await t.app.db.adapter.all('SELECT name,price_cents,stock,category,channel,is_favorite FROM products ORDER BY id')).map(p=>[p.name,p.price_cents,p.stock,p.category,p.channel,p.is_favorite]);
+const OLD_PRODUCTS=[['Açaí 500 ml (delivery)','24,00',4],['Coca-Cola 350 ml','7,00',0],['Turbo Fitness - Pré-Treino','22,00',9]];
+const RESTORED=[['Açaí 500 ml (delivery)',2400,4,'Açaís','delivery',0],['Coca-Cola 350 ml',700,0,'Bebidas','loja',0],['Turbo Fitness - Pré-Treino',2200,9,'Outros','loja',0]];
+test('P15 um backup da versão anterior do banco é restaurado e os produtos ganham categoria, canal e favorito',{skip:SKIP},async()=>{
+  const t=await boot();try{
+    await setupAdmin(t);for(const [name,price,stock] of OLD_PRODUCTS)ok(await t.post('/api/products/save',{name,price,stock,favorite:true}));
+    const old=await crafted(t,{manifest:{schemaVersion:4},mutate:d=>{for(const c of ['category','channel','is_favorite'])d.exec(`ALTER TABLE products DROP COLUMN ${c}`);d.exec('PRAGMA user_version=4');}});
+    ok(await t.post('/api/products/save',{name:'Cadastrado depois do backup',price:'1,00',stock:1}));
+    const r=await restore(t,old);assert.equal(r.review.schemaVersion,4);ok(await r.confirm());
+    assert.deepEqual(await productsOf(t),RESTORED);assert.equal(await t.app.db.schemaVersion(),SCHEMA_VERSION);
+  }finally{await t.stop();}
+});
+
+test('P15 um backup antigo feito com a nuvem como banco principal (versão 4, em JSON) também ganha os novos campos',{skip:SKIP},async()=>{
+  const {exportLocalData}=require('../src/database/migration-tools/ExportLocalData');
+  const t=await boot();try{
+    await setupAdmin(t);for(const [name,price,stock] of OLD_PRODUCTS)ok(await t.post('/api/products/save',{name,price,stock,favorite:true}));
+    const {manifest}=decodeBackup(backupFile(t,(await backup(t)).name),keyOf(t));
+    const data=await exportLocalData(t.app.db.adapter);data.schemaVersion=4;data.tables.products=data.tables.products.map(({category,channel,is_favorite,...p})=>p);
+    const db=Buffer.from(JSON.stringify(data));
+    const file=encodeBackup({manifest:{...manifest,provider:'postgres',payload:'json',schemaVersion:4,database:{bytes:db.length,sha256:sha256(db)}},database:db,key:keyOf(t)});
+    ok(await t.post('/api/products/favorite',{id:1,favorite:false}));
+    const r=await restore(t,file);assert.equal(r.review.schemaVersion,4);ok(await r.confirm());
+    assert.deepEqual(await productsOf(t),RESTORED);
+  }finally{await t.stop();}
 });

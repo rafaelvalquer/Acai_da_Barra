@@ -12,7 +12,7 @@
 const os=require('node:os'),crypto=require('node:crypto');
 const {TABLES,TABLE_NAMES}=require('../database/schema');const {Mutex}=require('../database/Mutex');
 const {exportLocalData,readTable}=require('../database/migration-tools/ExportLocalData');const {insertRows}=require('../database/migration-tools/copyData');
-const {isEmpty}=require('../database/migration-tools/ImportToPostgres');const {resetIdentities}=require('../database/migrations/postgres');
+const {isEmpty}=require('../database/migration-tools/ImportToPostgres');const {resetIdentities,migratePostgres,POSTGRES_VERSION}=require('../database/migrations/postgres');
 const {summarize}=require('../database/summary');const {friendlyPg}=require('../database/DatabaseMigrationService');
 const ChangeLog=require('./ChangeLog');
 const BATCH=200;
@@ -58,7 +58,7 @@ async function replaceAll(q,data){
 class CloudSync {
   constructor({databases,settings,vault,log=console,audit=async()=>{},timing={},now=()=>Date.now()}){
     Object.assign(this,{databases,settings,vault,log,audit,now});this.timing={...TIMING,...timing};
-    this.queue=new Mutex();this.enabled=false;this.full=false;this.claimPending=false;this.fullGen=0;this.pg=null;this.timer=null;this.stopped=false;
+    this.queue=new Mutex();this.enabled=false;this.full=false;this.claimPending=false;this.connectPending=false;this.fullGen=0;this.pg=null;this.timer=null;this.stopped=false;
     this.pendingCount={changes:0,sales:0};this.countedWrites=null;this.problem=null;this.failures=0;this.retryAt=0;
     this.lastSyncAt=null;this.lastSavedAt=0;this.lastCheck=null;this.nextCheckAt=0;this.waitingSince=null;this.deviceId=null;this.target=null;
   }
@@ -74,6 +74,9 @@ class CloudSync {
     // Any database opened later (a restore, the move from the old cloud mode) passes here before it is used.
     this.store.afterInit=adapter=>this.attach(adapter);
     const a=this.local();if(this.enabled&&a)await this.attach(a);
+    // The cloud is reached once at start, even with nothing to send: one prepared by the previous version of the
+    // program is brought up to date right after an update, not only at the next sale.
+    this.connectPending=this.enabled;
     this.nextCheckAt=this.now()+this.timing.firstCheck;this.schedule(0);
   }
   // A local database without the change log while the copy is on was replaced (restore, copy from the cloud):
@@ -96,7 +99,7 @@ class CloudSync {
     if(!this.enabled||this.stopped)return;const a=this.local();if(!a)return;
     if(a.writes!==this.countedWrites){this.countedWrites=a.writes;await this.count(a);}
     if(this.now()<this.retryAt)return;
-    if(this.full||this.pendingCount.changes>0||this.now()>=this.nextCheckAt)await this.push(a);
+    if(this.full||this.pendingCount.changes>0||this.connectPending||this.now()>=this.nextCheckAt)await this.push(a);
   }
   async count(a){
     const p=await this.store.exclusive(async()=>this.store.adapter===a&&await ChangeLog.isInstalled(a)?ChangeLog.pending(a):{changes:0,sales:0});
@@ -114,7 +117,7 @@ class CloudSync {
   }
   succeeded(){
     if(this.problem)this.log.info?.('Cópia na nuvem: conexão restabelecida, envio em dia.');
-    this.problem=null;this.failures=0;this.retryAt=0;this.lastSyncAt=this.iso();
+    this.problem=null;this.failures=0;this.retryAt=0;this.connectPending=false;this.lastSyncAt=this.iso();
     if(this.now()-this.lastSavedAt>=this.timing.saveEvery){this.lastSavedAt=this.now();this.saveSync({lastSyncAt:this.lastSyncAt}).catch(()=>{});}
   }
   async failed(e){
@@ -136,14 +139,31 @@ class CloudSync {
     try{
       await prepareCloud(pg);
       if(this.claimPending){await this.claim(pg,{replace:true});this.claimPending=false;await this.saveSync({claim:false});}
+      await this.upgrade(pg);
     }catch(e){await pg.close().catch(()=>{});throw e;}
     this.pg=pg;return pg;
+  }
+  // The cloud database must have the same tables and columns as this PDV before anything is sent. One of an older
+  // version (prepared before an update of the program) gets the PDV's own migrations, only when it is this
+  // computer's copy, and then the whole database is sent. A newer one (another PDV, already updated) stops the sends.
+  async upgrade(pg){
+    const version=await pg.schemaVersion();
+    if(version>POSTGRES_VERSION)throw httpError(409,`O banco na nuvem é de uma versão mais nova do PDV (versão ${version}; esta é a ${POSTGRES_VERSION}). Atualize o programa neste computador para voltar a enviar. As vendas continuam guardadas aqui.`);
+    if(version===POSTGRES_VERSION)return;
+    const r=await pg.get('SELECT device_id,device_name FROM pdv_sync WHERE id=1');if(!r||r.device_id!==this.deviceId)throw this.ownerError(r);
+    await migratePostgres(pg);
+    this.log.info?.(`Cópia na nuvem: banco na nuvem atualizado da versão ${version} para a ${POSTGRES_VERSION}.`);
+    await this.audit({username:'sistema',action:'nuvem_atualizada',detail:{de:version,para:POSTGRES_VERSION}}).catch(()=>{});
+    await this.markFull(`banco na nuvem atualizado para a versão ${POSTGRES_VERSION}`);
+  }
+  ownerError(r){
+    return httpError(409,`A cópia na nuvem passou a ser de outro computador${r?.device_name?` (${r.device_name})`:''}. Este PDV parou de enviar; as vendas continuam guardadas aqui. Para este computador voltar a enviar, ative a cópia na nuvem de novo na Administração.`,{owner:true});
   }
   async drop(){const pg=this.pg;this.pg=null;if(pg)await Promise.race([pg.close().catch(()=>{}),new Promise(r=>{const t=setTimeout(r,1000);t.unref?.();})]);}
   // Inside the cloud transaction: the copy must still be this computer's.
   async own(q){
     const r=await q.get('SELECT device_id,device_name FROM pdv_sync WHERE id=1 FOR UPDATE');
-    if(!r||r.device_id!==this.deviceId)throw httpError(409,`A cópia na nuvem passou a ser de outro computador${r?.device_name?` (${r.device_name})`:''}. Este PDV parou de enviar; as vendas continuam guardadas aqui. Para este computador voltar a enviar, ative a cópia na nuvem de novo na Administração.`,{owner:true});
+    if(!r||r.device_id!==this.deviceId)throw this.ownerError(r);
     await q.run('UPDATE pdv_sync SET last_push_at=? WHERE id=1',[this.iso()]);
   }
   async sendChanges(pg,a){

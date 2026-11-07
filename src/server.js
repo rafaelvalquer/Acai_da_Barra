@@ -3,7 +3,7 @@ const http=require('node:http');const fs=require('node:fs');const path=require('
 const {randomBytes}=require('node:crypto');
 const HOST='127.0.0.1';
 const WEB=path.resolve(__dirname,'../public');
-const STATIC=['/app.js','/style.css','/admin.js','/admin.css','/logo.svg','/fonts/work-sans.woff2'];
+const STATIC=['/app.js','/product-filter.js','/style.css','/admin.js','/admin.css','/logo.svg','/fonts/work-sans.woff2'];
 const SECURITY={'X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY'};
 function send(res,status,payload,headers={}){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...SECURITY,...headers});res.end(JSON.stringify(payload));}
 function fail(res,status,error,extra={}){send(res,status,{error,...extra});}
@@ -79,6 +79,7 @@ function createServer({db,scale,system=null}){
       case '/api/shift/move':result=await db.moveCash(b.kind,b.amount,b.note);break;
       case '/api/shift/close':result=await db.closeShift(b.counted);if(system)system.afterShiftClose();break;
       case '/api/products/save':result=await db.product(b);break;
+      case '/api/products/favorite':result=await db.favoriteProduct(b.id,b.favorite);break;
       case '/api/products/remove':result=await db.deleteProduct(b.id);break;
       case '/api/open-sales/create':guardSwitch();result=await db.createDraftSale();break;
       case '/api/open-sales/select':if(b.saleId!==await db.activeSaleId())guardSwitch();result=await db.selectDraftSale(b.saleId);break;

@@ -1,4 +1,5 @@
 'use strict';
+const {SCHEMA_VERSION}=require('../src/database/schema');
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {randomUUID}=require('node:crypto');const {DatabaseSync}=require('node:sqlite');
 const {ScaleDriver}=require('../src/scale');const {PdvStore}=require('../src/store');const {SQLiteAdapter}=require('../src/database/adapters/SQLiteAdapter');
@@ -248,6 +249,6 @@ test('a v0.1 database is migrated without losing sales',{skip:isPostgres&&'arqui
   const r=await s.report();assert.equal(r.count,1);assert.equal(r.totalCents,1234);assert.equal(r.byOperator[0].name,'Não identificado');
   assert.equal((await s.cashSummary()).shift.id,1);
   // The shift that was open gets an empty sale, ready for the scale.
-  assert.equal(await s.schemaVersion(),4);assert.deepEqual((await s.listDraftSales()).map(d=>[d.label,d.item_count]),[['Venda 01',0]]);assert.equal(await A(s),(await s.listDraftSales())[0].id);
+  assert.equal(await s.schemaVersion(),SCHEMA_VERSION);assert.deepEqual((await s.listDraftSales()).map(d=>[d.label,d.item_count]),[['Venda 01',0]]);assert.equal(await A(s),(await s.listDraftSales())[0].id);
  }finally{await f.clean();}
 });

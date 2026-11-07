@@ -1,11 +1,11 @@
 'use strict';
 // The PDV tables, in an order where every reference points to a table listed before it. Used to copy data between
 // databases (backup, restore, migration to PostgreSQL) and to check that a backup has the expected structure.
-const SCHEMA_VERSION=4;
+const SCHEMA_VERSION=5;
 const TABLES=[
   {name:'settings',key:'k',columns:['k','v']},
   {name:'employees',key:'id',identity:true,columns:['id','uuid','name','active','created_at']},
-  {name:'products',key:'id',identity:true,columns:['id','uuid','name','price_cents','stock','active']},
+  {name:'products',key:'id',identity:true,columns:['id','uuid','name','price_cents','stock','active','category','channel','is_favorite']},
   {name:'shifts',key:'id',identity:true,columns:['id','uuid','opened_at','opening_cents','closed_at','counted_cents','expected_cents','difference_cents','opened_by','closed_by','active_draft_id']},
   {name:'cash_events',key:'id',identity:true,columns:['id','uuid','shift_id','kind','amount_cents','note','created_at','operator_id']},
   {name:'sales',key:'id',identity:true,columns:['id','uuid','shift_id','created_at','method','total_cents','operator_id','status','canceled_at','canceled_by','cancel_reason','received_cents','change_cents','draft_sale_id']},

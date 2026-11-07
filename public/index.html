@@ -26,6 +26,9 @@
  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0V8z"/><path d="M12 17v4"/></symbol>
  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5L7 4.5z"/></symbol>
  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+ <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.2 2.7 5.5 6 .9-4.35 4.25 1.03 6L12 17l-5.38 2.85 1.03-6L3.3 9.6l6-.9L12 3.2z"/></symbol>
+ <symbol id="i-bike" viewBox="0 0 24 24"><circle cx="5.5" cy="17" r="3.5"/><circle cx="18.5" cy="17" r="3.5"/><path d="M5.5 17 9 9h6l3.5 8"/><path d="M9 9 7.5 6H5"/><path d="M15 9l-2.5 8H9"/></symbol>
+ <symbol id="i-store" viewBox="0 0 24 24"><path d="M4 10v10h16V10"/><path d="M3 10 5 4h14l2 6"/><path d="M3 10a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M10 20v-5h4v5"/></symbol>
  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19L12 3.5z"/><path d="M12 10v4M12 17h.01"/></symbol>
  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8-10-10z"/><circle cx="7.5" cy="8.5" r="1.5"/></symbol>
@@ -106,8 +109,13 @@
     <div class="capture-pending hidden" id="capture-pending" role="alert"></div>
     <label class="switch"><input type="checkbox" id="auto-capture"/><span class="track" aria-hidden="true"></span>Lançar automaticamente quando o peso estabilizar</label>
    </div>
-   <div class="card">
-    <div class="card-title"><span>Produtos avulsos</span><span class="minor">Toque para adicionar</span></div>
+   <div class="card qp-card">
+    <div class="card-title"><span>Produtos avulsos</span><span class="minor" id="qp-count">Toque para adicionar</span></div>
+    <div class="qp-tools">
+     <div class="qp-search"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input id="qp-search" type="search" placeholder="Buscar produto, sabor ou tamanho..." autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Buscar produto" aria-controls="quick-products"/><button type="button" class="qp-clear hidden" id="qp-clear" aria-label="Limpar busca" title="Limpar busca (Esc)"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+     <div class="seg qp-channel" id="qp-channel" role="tablist" aria-label="Canal de venda"><button type="button" role="tab" data-channel="loja" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-store"/></svg>Loja física</button><button type="button" role="tab" data-channel="delivery" aria-selected="false"><svg class="i" aria-hidden="true"><use href="#i-bike"/></svg>Delivery</button></div>
+    </div>
+    <div class="qp-cats" id="qp-cats" role="tablist" aria-label="Categorias"></div>
     <div id="quick-products" class="product-grid"></div>
    </div>
   </div>
@@ -168,10 +176,14 @@
    <form id="product-form" class="form"><input id="product-id" type="hidden"/>
     <label>Nome do produto<input id="product-name" required placeholder="Água sem gás" maxlength="80"/></label>
     <div class="grid2"><label>Preço de venda (R$)<input id="product-price" required inputmode="decimal" placeholder="5,00"/></label><label>Quantidade em estoque<input id="product-stock" type="number" min="0" max="999999" value="0" required/></label></div>
+    <div class="grid2"><label>Categoria<select id="product-category"></select></label><label>Canal de venda<select id="product-channel"><option value="loja">Loja física</option><option value="delivery">Delivery</option></select></label></div>
+    <label class="check-row"><input type="checkbox" id="product-favorite"/><span class="check-box" aria-hidden="true"><svg class="i"><use href="#i-star"/></svg></span><span><strong>Produto favorito / acesso rápido</strong><small>Aparece primeiro na frente de caixa, em Favoritos.</small></span></label>
     <div class="form-actions"><button type="submit" class="primary"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Salvar produto</button><button type="reset" class="link-btn">Cancelar edição</button></div>
    </form>
   </div>
-  <div class="card"><div class="card-title">Produtos cadastrados</div><div id="product-list"></div></div>
+  <div class="card"><div class="card-title"><span>Produtos cadastrados</span><span class="minor" id="product-list-count"></span></div>
+   <div class="qp-search list-search"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input id="product-list-search" type="search" placeholder="Buscar por nome ou categoria..." autocomplete="off" spellcheck="false" aria-label="Buscar produto cadastrado" aria-controls="product-list"/></div>
+   <div id="product-list"></div></div>
  </div>
 </section>
 
@@ -302,5 +314,5 @@
  <div class="modal-actions" id="sale-actions"><button class="primary" id="btn-sale-correct"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>Cancelar e corrigir</button><button class="danger" id="btn-sale-cancel"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Cancelar venda</button></div>
 </dialog>
 
-<div id="toast" role="status" aria-live="polite"></div><script src="/app.js" defer></script><script src="/admin.js" defer></script>
+<div id="toast" role="status" aria-live="polite"></div><script src="/product-filter.js" defer></script><script src="/app.js" defer></script><script src="/admin.js" defer></script>
 </body></html>

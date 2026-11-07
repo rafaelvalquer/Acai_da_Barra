@@ -68,6 +68,15 @@ async function seed(filename){
   upd('UPDATE draft_sales SET created_at=?,updated_at=? WHERE id=?',at(0,13,58),at(0,13,58),await s.activeSaleId());
   upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE shift_id=? AND status<>? AND sale_id IS NULL',at(0,13,50),at(0,13,50),at(0,13,50),todayShift,'open');
   for(const [id,stock] of prods.map((id,i)=>[id,[38,24,11,57][i]]))upd('UPDATE products SET stock=? WHERE id=?',stock,id);
+  // The rest of the catalog, at the shop counter and for delivery, so the visitor can try the search, the channels
+  // and the categories. Added last: the sales above stay the same. The category comes from the name.
+  for(const [name,price,stock] of [['Açaí no copo 300 ml','15,00',40],['Coca-Cola 350 ml','7,00',30],['Suco de laranja 500 ml','10,00',18],['Vitamina de banana','12,00',14],
+    ['Brownie de chocolate','9,00',12],['Caldo de mandioca','16,00',9],['Crepe de frango','18,00',15],['Tostex misto','12,00',2],['Combo Açaí 500 ml + água','25,00',20],
+    ['Açaí 500 ml (delivery)','24,00',50],['Açaí 700 ml (delivery)','30,00',35],['Coca-Cola 350 ml (delivery)','8,00',30],['Suco de laranja 500 ml (delivery)','12,00',16],
+    ['Crepe de frango (delivery)','20,00',12],['Combo casal - 2 açaís 500 ml (delivery)','45,00',10],['Brownie de chocolate (delivery)','10,00',0],['Caldo de mandioca (delivery)','18,00',8]])
+    await s.product({name,price,stock});
+  // Favorites: what each channel sells the most opens first at the till.
+  for(const name of ['Água sem gás','Refrigerante lata','Açaí 500 ml (delivery)','Coca-Cola 350 ml (delivery)'])upd('UPDATE products SET is_favorite=1 WHERE name=?',name);
   raw.prepare('INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)').run('demo_seed_day',today);
   // sql.js opens plain database files; leave WAL so the bytes are self-contained.
   raw.exec('PRAGMA journal_mode=DELETE');

@@ -1,5 +1,6 @@
 'use strict';
 // Simultaneous sales (one tab per customer being served): cases T01–T18 of the plan.
+const {SCHEMA_VERSION}=require('../src/database/schema');
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {EventEmitter}=require('node:events');const {randomUUID}=require('node:crypto');const {DatabaseSync}=require('node:sqlite');
 const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');const {PdvStore}=require('../src/store');const {SQLiteAdapter}=require('../src/database/adapters/SQLiteAdapter');
@@ -342,7 +343,7 @@ test('T18 a database from the previous version gets the open-sale tables and kee
   old.close();
   let s=await PdvStore.open(SQLiteAdapter.open(file));
   try{
-    assert.equal(await s.schemaVersion(),4);
+    assert.equal(await s.schemaVersion(),SCHEMA_VERSION);
     const tables=(await s.adapter.all("SELECT name FROM sqlite_master WHERE type='table'")).map(x=>x.name);
     for(const name of ['draft_sales','draft_sale_items','draft_sale_events'])assert.ok(tables.includes(name),name);
     assert.ok((await s.adapter.all('PRAGMA table_info(shifts)')).some(c=>c.name==='active_draft_id'));
@@ -350,7 +351,7 @@ test('T18 a database from the previous version gets the open-sale tables and kee
     const sale=await s.saleDetail(1);assert.equal(sale.total_cents,3154);assert.equal(sale.change_cents,1846);assert.equal(sale.draft_sale_id,null);assert.equal(sale.items.length,1);
     assert.deepEqual((await s.listDraftSales()).map(d=>[d.label,d.item_count]),[['Venda 01',0]]);assert.equal((await s.cashSummary()).expectedCents,5000+3154);
     // Opening it again changes nothing.
-    await s.close();s=await PdvStore.open(SQLiteAdapter.open(file));assert.equal(await s.schemaVersion(),4);assert.equal((await s.listDraftSales()).length,1);
+    await s.close();s=await PdvStore.open(SQLiteAdapter.open(file));assert.equal(await s.schemaVersion(),SCHEMA_VERSION);assert.equal((await s.listDraftSales()).length,1);
     await s.addManualValue(await s.activeSaleId(),'10,00');assert.equal((await s.checkoutDraftSale(await s.activeSaleId(),'pix',randomUUID())).sale.id,2);
   }finally{await s.close();fs.rmSync(dir,{recursive:true,force:true});}
 });

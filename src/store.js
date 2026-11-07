@@ -10,7 +10,7 @@ const OPERATIONS={
   config:['getConfig','updateConfig'],
   employees:['listEmployees','employee','saveEmployee','removeEmployee','operatorId','operator','setOperator','requireOperator'],
   cash:['shift','openShift','moveCash','shiftTotals','cashSummary','closeShift'],
-  stock:['listProducts','product','deleteProduct'],
+  stock:['listProducts','product','favoriteProduct','deleteProduct'],
   sales:['draftRow','activeSaleId','listDraftSales','getDraftSale','createDraftSale','selectDraftSale','renameDraftSale','addUnit','setQuantity','addWeighed','captureWeighing',
     'addManualWeight','addManualValue','removeDraftSaleItem','transferDraftSaleItem','draftEvents','discardDraftSale','checkoutDraftSale','cancelSale','correctSale','saleDetail'],
   reports:['salesHistory','report']

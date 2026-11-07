@@ -12,7 +12,13 @@ const icon=(name,cls='')=>`<svg class="i ${cls}" aria-hidden="true"><use href="#
 const emptyState=(name,title,text)=>`<div class="empty">${icon(name,'lg')}<strong>${title}</strong>${text?`<span>${text}</span>`:''}</div>`;
 const initials=n=>String(n).split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
 const plural=(n,one,many)=>`${n} ${n===1?one:many}`;
-const TONES=['t-yellow','t-orange','t-lime','t-pink'];
+// Produtos avulsos: the filters live only on this screen (they never change a sale). The channel is remembered per
+// open sale during the session, so going back to a delivery order shows the delivery products again.
+const productFilters={search:'',channel:'loja',category:null};const channelBySale=new Map();
+// The product form picks the channel from a "(delivery)" at the end of a new name, until the operator chooses one.
+let formChannelTouched=false;
+const CAT_TONE={'Açaís':'c-acai','Bebidas':'c-bebida','Sucos e Vitaminas':'c-suco','Sobremesas':'c-doce','Caldos':'c-caldo','Crepes e Lanches':'c-lanche','Combos':'c-combo','Outros':'c-outro'};
+const PF=()=>window.ProductFilter;
 const PAY={pix:'Pix',cash:'Dinheiro',debit:'Débito',credit:'Crédito'};
 const WEEK=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MONTHS=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
@@ -85,7 +91,7 @@ function render(){
  $('btn-capture').disabled=!shift||!s.ready||!state.activeSale;$('btn-manual').disabled=!shift||!state.activeSale;
  const pend=state.pendingCaptures||[];$('capture-pending').classList.toggle('hidden',!pend.length);
  paint('capture-pending',pend.map(p=>`<div class="pending-row">${icon('alert')}<div class="grow"><strong>Pesagem de ${weight(p.grams)} kg não foi gravada${p.label?` em ${safe(p.label)}`:''}</strong><small>${safe(p.error)}</small></div><button type="button" class="accent" data-retry="${safe(p.captureId)}">Tentar de novo</button><button type="button" class="secondary" data-drop="${safe(p.captureId)}">Descartar</button></div>`).join(''));
- paint('quick-products',state.products.length?state.products.map((p,i)=>`<button class="product-button ${TONES[i%4]}" data-add="${p.id}" ${p.available<1||!shift?'disabled':''}><span class="pb-plus">${icon('plus')}</span><span class="pb-name">${safe(p.name)}</span><small>${p.available>0?plural(p.available,'disponível','disponíveis'):p.stock>0?'Reservado em vendas abertas':'Sem estoque'}</small><strong>${money(p.price_cents)}</strong></button>`).join(''):emptyState('box','Nenhum produto avulso','Cadastre itens como água e refrigerante na aba Produtos.'));
+ renderQuickProducts();
  const n=state.cart.length;$('cart-count').textContent=plural(n,'item','itens');$('cart-total').textContent=money(state.cartTotalCents);
  if(!renameId)$('sale-name-text').textContent=state.activeSale?.label||'—';$('sale-name').disabled=!state.activeSale;
  paint('cart-items',n?state.cart.map(p=>`<div class="cart-item"><span class="ci-icon ${p.manual?'is-manual':p.kind==='weight'?'is-weight':''}">${icon(p.manual?'keyboard':p.kind==='unit'?'box':'cup')}</span><div class="ci-main"><strong>${safe(p.label)}</strong><small>${itemLine(p.kind,p.grams,p.quantity,p.unitCents)}</small></div>${p.kind==='unit'?`<div class="qty"><button data-qty="${safe(p.key)}" data-to="${p.quantity-1}" ${p.quantity<2?'disabled':''} aria-label="Diminuir quantidade">${icon('minus')}</button><span>${p.quantity}</span><button data-qty="${safe(p.key)}" data-to="${p.quantity+1}" aria-label="Aumentar quantidade">${icon('plus')}</button></div>`:''}<span class="ci-total">${money(p.totalCents)}</span><div class="ci-actions"><button class="move" data-move="${safe(p.key)}" aria-label="Transferir ${safe(p.label)} para outra venda" title="Transferir para outra venda">${icon('swap')}</button><button class="remove" data-remove="${safe(p.key)}" aria-label="Remover ${safe(p.label)}" title="Remover">${icon('x')}</button></div></div>`).join(''):emptyState('cup','Nenhum item ainda','Coloque o copo na balança ou toque em um produto avulso.'));
@@ -111,6 +117,8 @@ function renderSales(){
   // Another customer: an amount typed for the previous one no longer applies.
   if(lastActive!==null)$('cash-received').value='';
   lastActive=active;finishRename(false);
+  // Each sale shows the products of its own channel; a new one starts at the shop counter.
+  productFilters.channel=channelBySale.get(active)||'loja';productFilters.category=null;
   const on=bar.querySelector('.sale-tab.active');if(on&&(on.offsetLeft<bar.scrollLeft||on.offsetLeft+on.offsetWidth>bar.scrollLeft+bar.clientWidth))bar.scrollLeft=on.offsetLeft-16;
  }
 }
@@ -144,8 +152,49 @@ function renderCash(){
  paint('cash-open-sales',shift&&open.length?`<div class="notice warn">${icon('alert')}<span><strong>${open.length===1?'1 venda em aberto':`${open.length} vendas em aberto`}.</strong> Cobre ou descarte antes de fechar o caixa.</span></div><div class="open-sales-list">${open.map(d=>`<button type="button" class="secondary" data-open-sale="${d.id}">${safe(d.label)} · ${money(d.total_cents)}${icon('arrow-right')}</button>`).join('')}</div>`:'');
  paint('cash-events',events?.length?events.map(e=>{const out=e.kind==='withdrawal';return `<div class="rowline"><span class="ev-icon ${out?'out':'in'}">${icon(out?'arrow-down':'arrow-up')}</span><div class="grow"><strong>${out?'Sangria':'Suprimento'}</strong><small>${safe(e.note)||'Sem descrição'} · ${time(e.created_at)}${e.operator_name?` · ${safe(e.operator_name)}`:''}</small></div><strong class="${out?'neg':'pos'}">${out?'−':'+'} ${money(e.amount_cents)}</strong></div>`;}).join(''):emptyState('swap','Nenhuma movimentação','Sangrias e suprimentos do turno aparecem aqui.'));
 }
+// Produtos avulsos at the till: what the search, the channel and the category leave, from the products already loaded
+// (no request per key). Only what changed is repainted, so the search keeps its text, cursor and focus through the
+// automatic refresh, and adding a product works exactly as before (/api/cart/unit with the same saleId, id, quantity).
+function renderQuickProducts(){
+ const pf=PF(),f=productFilters,all=state.products||[],shift=state.cash.shift;
+ f.category=pf.validCategory(all,f.channel,f.category);
+ document.querySelectorAll('[data-channel]').forEach(b=>{const on=b.dataset.channel===f.channel;b.setAttribute('aria-selected',on);b.tabIndex=on?0:-1;});
+ const chips=pf.categoryChips(all,f.channel),cats=$('qp-cats'),focused=cats.contains(document.activeElement)?document.activeElement.dataset.cat:null;
+ paint('qp-cats',all.length?chips.map(c=>{const on=c.id===f.category;return `<button type="button" role="tab" class="qp-cat${c.id===pf.FAVORITES?' fav':''}" data-cat="${safe(c.id)}" aria-selected="${on}" tabindex="${on?0:-1}">${c.id===pf.FAVORITES?icon('star'):''}${safe(c.id)}<small>${c.count}</small></button>`;}).join(''):'');
+ if(focused&&!cats.contains(document.activeElement))[...cats.querySelectorAll('[data-cat]')].find(b=>b.dataset.cat===focused)?.focus();
+ const list=pf.filterProducts(all,f),inChannel=all.some(p=>p.channel===f.channel);
+ $('qp-count').textContent=!all.length?'Toque para adicionar':!shift?'Abra o caixa para vender':plural(list.length,'produto','produtos');
+ paint('quick-products',!all.length?emptyState('box','Nenhum produto avulso','Cadastre itens como água e refrigerante na aba Produtos.')
+  :!inChannel?emptyState(f.channel==='delivery'?'bike':'store',f.channel==='delivery'?'Nenhum produto de delivery':'Nenhum produto da loja física','Na aba Produtos, escolha o canal de venda de cada item.')
+  :!list.length?noProductFound(all,f):list.map(p=>productCard(p,shift)).join(''));
+}
+function productCard(p,shift){
+ const pf=PF(),why=p.available>0?plural(p.available,'disponível','disponíveis'):p.stock>0?'Reservado em vendas abertas':'Sem estoque';
+ return `<button type="button" class="product-button ${CAT_TONE[pf.categoryOf(p)]}" data-add="${p.id}" title="${safe(p.name)} · ${money(p.price_cents)} · ${why}" aria-label="${safe(p.name)}, ${money(p.price_cents)}, ${why}" ${p.available<1||!shift?'disabled':''}><span class="pb-name">${pf.isFavorite(p)?icon('star','pb-fav'):''}${safe(pf.displayName(p.name))}</span><span class="pb-foot"><strong>${money(p.price_cents)}</strong><small class="${p.available<1?'out':p.available<=3?'low':''}">${p.available>0?`${p.available} disp.`:p.stock>0?'Reservado':'Sem estoque'}</small><span class="pb-add">${icon('plus')}</span></span></button>`;
+}
+// Nothing found: says where it looked and offers the way out (all categories, the other channel, or no filters).
+function noProductFound(all,f){
+ const pf=PF(),other=f.channel==='loja'?'delivery':'loja',search=f.search.trim();
+ const inAll=f.category!==pf.ALL?pf.filterProducts(all,{...f,category:pf.ALL}).length:0;
+ const inOther=search?pf.filterProducts(all,{...f,channel:other,category:pf.ALL}).length:0;
+ const where=f.category===pf.ALL?pf.CHANNEL_LABEL[f.channel]:`${f.category} · ${pf.CHANNEL_LABEL[f.channel]}`;
+ return `<div class="empty qp-empty">${icon('search','lg')}<strong>Nenhum produto encontrado</strong><span>${search?`“${safe(search)}” em `:''}${safe(where)}</span><div class="qp-empty-actions">${inAll?`<button type="button" class="secondary" data-qp-cat="${pf.ALL}">Ver ${plural(inAll,'resultado','resultados')} em Todos</button>`:''}${inOther?`<button type="button" class="secondary" data-qp-channel="${other}">Ver ${inOther} ${other==='delivery'?'no Delivery':'na Loja física'}</button>`:''}<button type="button" class="link-btn" data-qp-reset>Limpar filtros</button></div></div>`;
+}
+function setChannel(channel,category=null){productFilters.channel=channel;productFilters.category=category;if(state.activeSaleId)channelBySale.set(state.activeSaleId,channel);renderQuickProducts();}
+function clearSearch(){$('qp-search').value='';productFilters.search='';$('qp-clear').classList.add('hidden');renderQuickProducts();}
+function addProduct(id){return run('/api/cart/unit',{saleId:state.activeSaleId,id:Number(id),quantity:1});}
+// Arrow keys, Home and End move through a row of tabs and select the one reached (focus first: the repaint that
+// follows the click puts the focus back on the chip that has it).
+function tabKeys(container,e){
+ const list=[...container.querySelectorAll('[role="tab"]')],i=list.indexOf(document.activeElement);if(i<0)return;
+ const next={ArrowRight:i+1,ArrowLeft:i-1,Home:0,End:list.length-1}[e.key];if(next===undefined)return;e.preventDefault();const b=list[(next+list.length)%list.length];b.focus();b.click();
+}
 function renderProducts(){
- paint('product-list',state.products.length?state.products.map((p,i)=>`<div class="rowline"><span class="tone-dot ${TONES[i%4]}"></span><div class="grow"><strong>${safe(p.name)}</strong><small>${money(p.price_cents)}${p.reserved?` · ${p.reserved} em vendas abertas`:''}</small></div><span class="stock ${p.stock<1?'out':p.stock<=5?'low':''}">${p.stock<1?'Sem estoque':p.stock+' un.'}</span><div class="row-buttons"><button class="secondary" data-edit="${p.id}">Editar</button><button class="danger" data-delete="${p.id}" aria-label="Excluir ${safe(p.name)}" title="Excluir">${icon('trash')}</button></div></div>`).join(''):emptyState('box','Nenhum produto cadastrado','Use o formulário ao lado para cadastrar o primeiro item.'));
+ const pf=PF(),all=state.products,words=pf.normalizeSearch($('product-list-search').value).split(' ').filter(Boolean);
+ const list=words.length?all.filter(p=>{const text=pf.normalizeSearch(`${p.name} ${pf.categoryOf(p)} ${pf.CHANNEL_LABEL[p.channel]||''}`);return words.every(w=>text.includes(w));}):all;
+ $('product-list-count').textContent=!all.length?'':list.length===all.length?plural(all.length,'produto','produtos'):`${list.length} de ${all.length}`;
+ paint('product-list',!all.length?emptyState('box','Nenhum produto cadastrado','Use o formulário ao lado para cadastrar o primeiro item.'):!list.length?emptyState('search','Nenhum produto encontrado','Busque por outro nome, categoria ou canal.')
+  :list.map(p=>{const fav=pf.isFavorite(p),label=fav?'Remover dos favoritos':'Marcar como favorito';return `<div class="rowline"><span class="tone-dot ${CAT_TONE[pf.categoryOf(p)]}"></span><div class="grow"><strong>${safe(p.name)}</strong><small>${money(p.price_cents)} · ${safe(pf.categoryOf(p))} · ${pf.CHANNEL_LABEL[p.channel]||safe(p.channel)}${p.reserved?` · ${p.reserved} em vendas abertas`:''}</small></div><span class="stock ${p.stock<1?'out':p.stock<=5?'low':''}">${p.stock<1?'Sem estoque':p.stock+' un.'}</span><div class="row-buttons"><button type="button" class="star-btn${fav?' on':''}" data-fav="${p.id}" aria-pressed="${fav}" aria-label="${label}: ${safe(p.name)}" title="${label}">${icon('star')}</button><button class="secondary" data-edit="${p.id}">Editar</button><button class="danger" data-delete="${p.id}" aria-label="Excluir ${safe(p.name)}" title="Excluir">${icon('trash')}</button></div></div>`;}).join(''));
 }
 function renderEmployees(){
  paint('employee-list',state.employees.length?state.employees.map(e=>`<div class="rowline"><span class="avatar">${safe(initials(e.name))}</span><div class="grow"><strong>${safe(e.name)}</strong>${state.operator?.id===e.id?'<small class="pos">No caixa agora</small>':''}</div><div class="row-buttons"><button class="secondary" data-emp-edit="${e.id}">Editar</button><button class="danger" data-emp-remove="${e.id}" aria-label="Desativar ${safe(e.name)}" title="Desativar">${icon('trash')}</button></div></div>`).join(''):emptyState('users','Nenhum funcionário','Cadastre quem vai operar o caixa.'));
@@ -246,7 +295,10 @@ function refresh(){
 // The next automatic refresh is scheduled only after the previous one answered.
 async function poll(){await refresh();setTimeout(poll,document.hidden?3000:850);}
 function tab(name){activeTab=name;document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('main section.panel').forEach(el=>el.classList.toggle('hidden',el.id!==name));window.scrollTo({top:0});if(name==='relatorios')renderReports();if(name==='historico')renderHistory();if(name==='configuracoes')window.LuminorAdmin?.open();}
-async function boot(){try{TOKEN=(await get('/api/session')).token;}catch(e){flash(e.message,true);}await poll();
+async function boot(){
+ // "Automática" lets the server classify a new product by its name; editing shows the category it has.
+ $('product-category').innerHTML='<option value="">Automática (pelo nome)</option>'+PF().CATEGORIES.map(c=>`<option value="${safe(c)}">${safe(c)}</option>`).join('');
+ try{TOKEN=(await get('/api/session')).token;}catch(e){flash(e.message,true);}await poll();
  $('hist-from').value=$('hist-to').value=localToday();
  document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.tab)));
  document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(!b)return;b.closest('dialog')?.close();tab(b.dataset.goto);(b.dataset.goto==='caixa'?$('opening-amount'):b.dataset.goto==='funcionarios'?$('employee-name'):null)?.focus();});
@@ -295,7 +347,26 @@ async function boot(){try{TOKEN=(await get('/api/session')).token;}catch(e){flas
   checkingOut=true;$('btn-checkout').disabled=true;
   try{const result=await run('/api/checkout',{saleId:sale.id,revision,method:payMethod,uuid:crypto.randomUUID(),...(received!==null&&{received:price(received)})});
    if(result){$('cash-received').value='';const change=result.sale.change_cents;flash(`${sale.label} cobrada · venda #${result.sale.id}${change!=null?` · troco ${money(change)}`:''}`);}}finally{checkingOut=false;render();}});
- $('quick-products').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)run('/api/cart/unit',{saleId:state.activeSaleId,id:Number(b.dataset.add),quantity:1});});
+ $('quick-products').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)return addProduct(b.dataset.add);
+  const cat=e.target.closest('[data-qp-cat]'),ch=e.target.closest('[data-qp-channel]');
+  if(cat){productFilters.category=cat.dataset.qpCat;renderQuickProducts();}
+  if(ch)setChannel(ch.dataset.qpChannel,PF().ALL);
+  if(e.target.closest('[data-qp-reset]')){productFilters.category=null;clearSearch();$('qp-search').focus();}});
+ const search=$('qp-search');
+ search.addEventListener('input',()=>{productFilters.search=search.value;$('qp-clear').classList.toggle('hidden',!search.value);renderQuickProducts();});
+ // Esc clears; Enter adds the product when the search left exactly one (the text stays selected: Enter again adds
+ // one more, typing replaces it with the next search).
+ search.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&search.value){e.preventDefault();clearSearch();}
+  if(e.key!=='Enter')return;e.preventDefault();const cards=[...$('quick-products').querySelectorAll('[data-add]')];
+  if(cards.length!==1)return cards.length&&flash(`${plural(cards.length,'produto encontrado','produtos encontrados')}: continue digitando ou toque no produto.`);
+  if(cards[0].disabled)return flash(!state.cash.shift?'Abra o caixa para vender':`${cards[0].querySelector('.pb-name').textContent}: sem estoque disponível`,true);
+  addProduct(cards[0].dataset.add).then(()=>{search.focus();search.select();});});
+ $('qp-clear').addEventListener('click',()=>{clearSearch();search.focus();});
+ $('qp-channel').addEventListener('click',e=>{const b=e.target.closest('[data-channel]');if(b&&b.dataset.channel!==productFilters.channel)setChannel(b.dataset.channel);});
+ $('qp-channel').addEventListener('keydown',e=>tabKeys($('qp-channel'),e));
+ $('qp-cats').addEventListener('click',e=>{const b=e.target.closest('[data-cat]');if(!b)return;productFilters.category=b.dataset.cat;renderQuickProducts();});
+ $('qp-cats').addEventListener('keydown',e=>tabKeys($('qp-cats'),e));
  $('cart-items').addEventListener('click',e=>{const saleId=state.activeSaleId;const m=e.target.closest('[data-move]');if(m)return openTransfer(m.dataset.move);
   const r=e.target.closest('[data-remove]');if(r)return run('/api/cart/remove',{saleId,key:r.dataset.remove});const q=e.target.closest('[data-qty]');if(q)run('/api/cart/quantity',{saleId,key:q.dataset.qty,quantity:Number(q.dataset.to)});});
  $('cash-controls').addEventListener('click',async e=>{
@@ -309,9 +380,15 @@ async function boot(){try{TOKEN=(await get('/api/session')).token;}catch(e){flas
     ['Total vendido',money(r.totalCents)],['Vendas',String(r.salesCount)+(r.canceledCount?` (${plural(r.canceledCount,'cancelada','canceladas')})`:'')],['Pix',money(r.methods.pix)],['Dinheiro',money(r.methods.cash)],['Débito',money(r.methods.debit)],['Crédito',money(r.methods.credit)],
     ['Fundo inicial',money(r.openingCents)],['Suprimentos',money(r.suppliesCents)],['Sangrias','− '+money(r.withdrawalsCents)],['Dinheiro esperado',money(r.expectedCents)],['Dinheiro contado',money(r.countedCents)],['Diferença',signed(r.differenceCents),r.differenceCents<0?'neg':r.differenceCents>0?'pos':'']]}));
  });
- $('product-form').addEventListener('submit',e=>{e.preventDefault();run('/api/products/save',{id:$('product-id').value?Number($('product-id').value):undefined,name:$('product-name').value,price:$('product-price').value,stock:Number($('product-stock').value)},()=>{e.target.reset();$('product-id').value='';flash('Produto salvo');});});
- $('product-form').addEventListener('reset',()=>{$('product-id').value='';$('product-form-title').textContent='Cadastrar produto';});
- $('product-list').addEventListener('click',async e=>{const edit=e.target.closest('[data-edit]');const del=e.target.closest('[data-delete]');if(edit){const p=state.products.find(x=>x.id===Number(edit.dataset.edit));if(!p)return;$('product-id').value=p.id;$('product-name').value=p.name;$('product-price').value=price(p.price_cents);$('product-stock').value=p.stock;$('product-form-title').textContent=`Editando: ${p.name}`;$('product-form').scrollIntoView({behavior:'smooth',block:'center'});$('product-name').focus({preventScroll:true});}if(del){const p=state.products.find(x=>x.id===Number(del.dataset.delete));if(await ask('Excluir produto?',`${p?p.name:'O produto'} será removido do catálogo.`,{confirmLabel:'Excluir',tone:'danger-solid'}))run('/api/products/remove',{id:Number(del.dataset.delete)});}});
+ $('product-form').addEventListener('submit',e=>{e.preventDefault();run('/api/products/save',{id:$('product-id').value?Number($('product-id').value):undefined,name:$('product-name').value,price:$('product-price').value,stock:Number($('product-stock').value),
+  category:$('product-category').value,channel:$('product-channel').value,favorite:$('product-favorite').checked},()=>{e.target.reset();flash('Produto salvo');});});
+ $('product-form').addEventListener('reset',()=>{$('product-id').value='';formChannelTouched=false;$('product-form-title').textContent='Cadastrar produto';});
+ $('product-channel').addEventListener('change',()=>{formChannelTouched=true;});
+ $('product-name').addEventListener('input',()=>{const v=$('product-name').value.trim();if(!$('product-id').value&&!formChannelTouched)$('product-channel').value=PF().displayName(v)!==v?'delivery':'loja';});
+ $('product-list-search').addEventListener('input',renderProducts);
+ $('product-list-search').addEventListener('keydown',e=>{if(e.key==='Escape'&&e.target.value){e.preventDefault();e.target.value='';renderProducts();}});
+ $('product-list').addEventListener('click',async e=>{const edit=e.target.closest('[data-edit]');const del=e.target.closest('[data-delete]');const fav=e.target.closest('[data-fav]');if(fav){const p=state.products.find(x=>x.id===Number(fav.dataset.fav));if(p){const on=!PF().isFavorite(p);run('/api/products/favorite',{id:p.id,favorite:on},()=>flash(on?`${p.name} está nos favoritos`:`${p.name} saiu dos favoritos`));}return;}
+  if(edit){const p=state.products.find(x=>x.id===Number(edit.dataset.edit));if(!p)return;$('product-id').value=p.id;$('product-name').value=p.name;$('product-price').value=price(p.price_cents);$('product-stock').value=p.stock;$('product-category').value=PF().categoryOf(p);$('product-channel').value=p.channel==='delivery'?'delivery':'loja';$('product-favorite').checked=PF().isFavorite(p);formChannelTouched=true;$('product-form-title').textContent=`Editando: ${p.name}`;$('product-form').scrollIntoView({behavior:'smooth',block:'center'});$('product-name').focus({preventScroll:true});}if(del){const p=state.products.find(x=>x.id===Number(del.dataset.delete));if(await ask('Excluir produto?',`${p?p.name:'O produto'} será removido do catálogo.`,{confirmLabel:'Excluir',tone:'danger-solid'}))run('/api/products/remove',{id:Number(del.dataset.delete)});}});
  $('employee-form').addEventListener('submit',e=>{e.preventDefault();run('/api/employees/save',{id:$('employee-id').value?Number($('employee-id').value):undefined,name:$('employee-name').value},()=>{e.target.reset();flash('Funcionário salvo');});});
  $('employee-form').addEventListener('reset',()=>{$('employee-id').value='';$('employee-form-title').textContent='Cadastrar funcionário';});
  $('employee-list').addEventListener('click',async e=>{const edit=e.target.closest('[data-emp-edit]'),del=e.target.closest('[data-emp-remove]');
