@@ -20,7 +20,8 @@ test('writes need the session token and requests must come from the local host',
   assert.equal((await t.post('/api/shift/open',{},{'X-Luminor-Token':'errado'})).status,403);
   const status=await new Promise((resolve,reject)=>http.get({host:'127.0.0.1',port:t.server.address().port,path:'/api/state',headers:{Host:'evil.example'}},res=>{res.resume();resolve(res.statusCode);}).on('error',reject));
   assert.equal(status,403);
-  for(const file of ['/','/app.js','/style.css','/logo.svg','/fonts/work-sans.woff2'])assert.equal((await fetch(t.base+file)).status,200,file);
+  for(const file of ['/','/app.js','/style.css','/logo.svg','/favicon.ico','/fonts/work-sans.woff2'])assert.equal((await fetch(t.base+file)).status,200,file);
+  assert.equal((await fetch(t.base+'/favicon.ico')).headers.get('content-type'),'image/x-icon');
   assert.equal((await fetch(t.base+'/../src/db.js')).status,404);
  }finally{await t.close();}
 });

@@ -251,8 +251,6 @@ Ok "Tarefa ""$Tarefa"" criada: o PDV inicia junto com o Windows."
 # --- 7. Shortcuts --------------------------------------------------------------------------------------------------
 if (-not $SemAtalho) {
   Passo 'Criando os atalhos'
-  $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") |
-    Where-Object { Test-Path $_ } | Select-Object -First 1
   $shell = New-Object -ComObject WScript.Shell
   foreach ($pasta in [Environment]::GetFolderPath('CommonDesktopDirectory'), [Environment]::GetFolderPath('CommonPrograms')) {
     $atalho = $shell.CreateShortcut((Join-Path $pasta 'Luminor PDV.lnk'))
@@ -261,7 +259,7 @@ if (-not $SemAtalho) {
     $atalho.WorkingDirectory = $Destino
     $atalho.WindowStyle = 7
     $atalho.Description = 'Abrir o caixa do Luminor PDV'
-    if ($edge) { $atalho.IconLocation = "$edge,0" } else { $atalho.IconLocation = "$env:SystemRoot\System32\shell32.dll,13" }
+    $atalho.IconLocation = "$Destino\public\favicon.ico,0"
     $atalho.Save()
   }
   Ok 'Atalho "Luminor PDV" na área de trabalho e no menu Iniciar.'
