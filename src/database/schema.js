@@ -1,10 +1,12 @@
 'use strict';
 // The PDV tables, in an order where every reference points to a table listed before it. Used to copy data between
 // databases (backup, restore, migration to PostgreSQL) and to check that a backup has the expected structure.
-const SCHEMA_VERSION=5;
+// since: the schema version that created the table (absent: there from the start).
+const SCHEMA_VERSION=6;
 const TABLES=[
   {name:'settings',key:'k',columns:['k','v']},
   {name:'employees',key:'id',identity:true,columns:['id','uuid','name','active','created_at']},
+  {name:'employee_permissions',key:'id',identity:true,since:6,columns:['id','uuid','employee_id','permission','allowed','updated_at','updated_by']},
   {name:'products',key:'id',identity:true,columns:['id','uuid','name','price_cents','stock','active','category','channel','is_favorite']},
   {name:'shifts',key:'id',identity:true,columns:['id','uuid','opened_at','opening_cents','closed_at','counted_cents','expected_cents','difference_cents','opened_by','closed_by','active_draft_id']},
   {name:'cash_events',key:'id',identity:true,columns:['id','uuid','shift_id','kind','amount_cents','note','created_at','operator_id']},
@@ -15,4 +17,6 @@ const TABLES=[
   {name:'draft_sale_events',key:'id',identity:true,columns:['id','uuid','draft_sale_id','kind','detail','operator_id','created_at']}
 ];
 const TABLE_NAMES=TABLES.map(t=>t.name);
-module.exports={SCHEMA_VERSION,TABLES,TABLE_NAMES};
+// The tables a database of that schema version has.
+const tablesAt=version=>TABLES.filter(t=>(t.since||0)<=version);
+module.exports={SCHEMA_VERSION,TABLES,TABLE_NAMES,tablesAt};

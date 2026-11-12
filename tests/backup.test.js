@@ -190,7 +190,8 @@ test('D09 a restart (Windows reboot) keeps sales, backup settings and status, th
     state={backup:b.name,keyId:t.app.system.backups.keys.id(),open:(await t.get('/api/open-sales')).body};
   }finally{await t.stop();}
   const t2=await boot(home);try{
-    ok(await login(t2));
+    // The browser still has the till's session cookie: the session survives the restart.
+    t2.pos=t.pos;ok(await login(t2));
     const ov=await overview(t2);
     assert.equal(ov.lastSuccess.name,state.backup);assert.deepEqual([ov.settings.enabled,ov.settings.time,ov.settings.retentionDays],[true,'03:30',10]);
     assert.equal(ov.recoveryKey.id,state.keyId);assert.deepEqual(ov.hardware,{configured:true,path:'COM9',found:false,...(ov.hardware.error?{error:ov.hardware.error}:{})});
@@ -356,9 +357,11 @@ test('P15 um backup antigo feito com a nuvem como banco principal (versão 4, em
   const t=await boot();try{
     await setupAdmin(t);for(const [name,price,stock] of OLD_PRODUCTS)ok(await t.post('/api/products/save',{name,price,stock,favorite:true}));
     const {manifest}=decodeBackup(backupFile(t,(await backup(t)).name),keyOf(t));
-    const data=await exportLocalData(t.app.db.adapter);data.schemaVersion=4;data.tables.products=data.tables.products.map(({category,channel,is_favorite,...p})=>p);
+    const data=await exportLocalData(t.app.db.adapter);data.schemaVersion=4;data.tables.products=data.tables.products.map(({category,channel,is_favorite,...p})=>p);delete data.tables.employee_permissions;
     const db=Buffer.from(JSON.stringify(data));
-    const file=encodeBackup({manifest:{...manifest,provider:'postgres',payload:'json',schemaVersion:4,database:{bytes:db.length,sha256:sha256(db)}},database:db,key:keyOf(t)});
+    // A version 4 manifest counts only the tables of version 4.
+    const {employee_permissions,...counts}=manifest.summary.counts;
+    const file=encodeBackup({manifest:{...manifest,summary:{...manifest.summary,counts},provider:'postgres',payload:'json',schemaVersion:4,database:{bytes:db.length,sha256:sha256(db)}},database:db,key:keyOf(t)});
     ok(await t.post('/api/products/favorite',{id:1,favorite:false}));
     const r=await restore(t,file);assert.equal(r.review.schemaVersion,4);ok(await r.confirm());
     assert.deepEqual(await productsOf(t),RESTORED);

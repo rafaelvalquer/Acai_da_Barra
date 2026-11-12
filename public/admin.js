@@ -3,14 +3,24 @@
 // shows forms and results. The session lives in an HttpOnly cookie the page cannot read; the database password and
 // the keys never come back to the browser. Uses the helpers of app.js ($, safe, icon, flash, money, plural).
 (()=>{
-const A={view:'home',status:null,ov:null,db:null,backup:null,access:null,diag:null,cloud:{test:null,prepared:false},lastBackup:null,restore:null,key:null,code:null,message:null,current:null,demo:false};
+const A={opSel:null,opPin:null,ops:null,opsAudit:null,view:'home',status:null,ov:null,db:null,backup:null,access:null,diag:null,cloud:{test:null,prepared:false},lastBackup:null,restore:null,key:null,code:null,message:null,current:null,demo:false};
 const root=()=>$('admin-root');
 const when=s=>s?new Date(s).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}):'—';
 const bytes=n=>n==null?'—':n<1024?`${n} B`:n<1048576?`${Math.round(n/1024)} KB`:n<1073741824?`${(n/1048576).toFixed(1).replace('.',',')} MB`:`${(n/1073741824).toFixed(1).replace('.',',')} GB`;
 const duration=s=>s<3600?`${Math.max(1,Math.round(s/60))} min`:s<86400?`${Math.floor(s/3600)} h ${Math.round(s%3600/60)} min`:`${Math.floor(s/86400)} d ${Math.floor(s%86400/3600)} h`;
 const KIND={manual:'Manual',automatico:'Automático',fechamento:'Fechamento do caixa',seguranca:'Segurança (antes de restaurar ou migrar)',atualizacao:'Antes de atualizar'};
 const ACTIONS={login:'Entrada no painel',login_falhou:'Senha incorreta',login_bloqueado:'Acesso bloqueado',logout:'Saída',senha_alterada:'Senha alterada',usuario_alterado:'Usuário alterado',
- recuperacao_usada:'Código de recuperação usado',recuperacao_falhou:'Código de recuperação incorreto',codigo_recuperacao_gerado:'Novo código de recuperação',confirmacao_falhou:'Confirmação com senha incorreta'};
+ recuperacao_usada:'Código de recuperação usado',recuperacao_falhou:'Código de recuperação incorreto',codigo_recuperacao_gerado:'Novo código de recuperação',confirmacao_falhou:'Confirmação com senha incorreta',
+ // The till (Usuários e permissões).
+ login_operador:'Entrada no caixa',login_operador_falhou:'Entrada no caixa recusada',logout_operador:'Saída do caixa',terminal_bloqueado:'Caixa bloqueado',troca_pin:'PIN definido',
+ permissoes_alteradas:'Permissões alteradas',acesso_desativado:'Acesso ao caixa bloqueado',acesso_ativado:'Acesso ao caixa liberado',limite_sangria_alterado:'Limite de sangria alterado',
+ caixa_aberto:'Caixa aberto',caixa_fechado:'Caixa fechado',venda_cancelada:'Venda cancelada',venda_corrigida:'Venda corrigida',venda_admin:'Venda pelo administrador',sangria:'Sangria',suprimento:'Suprimento',
+ preco_kg_alterado:'Preço do quilo alterado',preco_produto_alterado:'Preço de produto alterado',acesso_negado:'Operação negada'};
+// The areas only the administrator reaches (never a permission of an employee).
+const ADMIN_ONLY={'admin.credentials':'senhas e PINs','admin.users':'usuários e permissões','admin.backups':'backups','admin.restore':'restauração','admin.database':'banco de dados'};
+// The Admin area tells the till screen (app.js) when the administrator is in (to take the till with the same sign-in)
+// and when they left.
+const tell=name=>window.dispatchEvent(new Event(name));
 const SCALE={stable:'Estável',waiting:'Sem leitura',offline:'Desconectada',unstable:'Instável',negative:'Peso negativo',overload:'Sobrecarga',invalid:'Leitura inválida'};
 const logLine=l=>typeof l==='string'?l:`${when(l.at)}  ${String(l.level||'').toUpperCase().padEnd(5)} ${l.message}`;
 const rows=list=>`<div class="adm-rows">${list.filter(Boolean).map(([l,v,c])=>`<div class="rowline"><span>${safe(l)}</span><strong class="${c||''}">${safe(v)}</strong></div>`).join('')}</div>`;
@@ -94,7 +104,8 @@ const LOADERS={
  backup:async()=>{A.backup=await apiGet('backup');},
  seguranca:async()=>{[A.status,A.access]=await Promise.all([status(),apiGet('access-log')]);},
  manutencao:async()=>{A.diag=await apiGet('diagnostics');},preferencias:async()=>{[A.diag,A.backup]=await Promise.all([apiGet('diagnostics'),apiGet('backup')]);},
- sobre:async()=>{A.diag=await apiGet('diagnostics');}
+ sobre:async()=>{A.diag=await apiGet('diagnostics');},
+ usuarios:async()=>{[A.ops,A.opsAudit]=await Promise.all([apiGet('operators'),apiGet('operators/audit')]);}
 };
 let loading=0;
 async function go(view){
@@ -207,6 +218,7 @@ VIEWS.panel=()=>{
   ['banco','database','Banco de dados','Local e cópia na nuvem',dbLine,dbTone],
   ['backup','download','Backup e restauração','Exportar e recuperar',last?`Último: ${when(last.at)}`:'Nenhum backup ainda',o.backup.lastFailure?'neg':last?'':'warn'],
   ['seguranca','shield','Segurança','Alterar usuário e senha',`Usuário: ${o.user.username}`,''],
+  ['usuarios','users','Usuários e permissões','PIN e acesso ao caixa','PIN, bloqueio e permissões de cada pessoa',''],
   ['manutencao','tool','Manutenção','Diagnósticos e logs',`Balança: ${o.scale.mode==='offline'?'desconectada':o.scale.mode==='demo'?'simulador':SCALE[o.scale.status]||o.scale.status}`,''],
   ['preferencias','sliders','Configurações','Preferências técnicas','Backup diário, pastas e endereço',''],
   ['sobre','info','Sobre o sistema','Versão e atualizações',`Versão ${o.version}`,'']];
@@ -434,6 +446,87 @@ VIEWS.sobre=()=>{
   </div>`;
 };
 
+// --- Usuários e permissões ----------------------------------------------------------------------------------------
+// Each employee's access at the till: their PIN (never shown again), whether they may sign in, and what they may do.
+// Everything is decided and checked on the server; a change asks the administrator's password, like any change of access.
+const opById=id=>A.ops.operators.find(o=>o.id===Number(id));
+const permLabel=()=>{const m=new Map(A.ops.catalog.groups.flatMap(g=>g.permissions.map(p=>[p.id,p.label])));return id=>m.get(id)||id;};
+const isCritical=id=>A.ops.catalog.groups.some(g=>g.permissions.some(p=>p.id===id&&p.critical));
+function opState(o){
+ if(!o.hasPin)return ['Sem PIN','off'];if(!o.active)return ['Acesso bloqueado','off'];if(o.review)return ['Revisar permissões','warn'];
+ if(o.lockedUntil)return [`PIN bloqueado até ${time(o.lockedUntil)}`,'warn'];return ['Pode entrar','on'];
+}
+// One line of the log in words (the detail never carries PINs, passwords or keys).
+function detailText(d={},label){
+ const out=[];
+ if(d.funcionario)out.push(d.funcionario);if(d.perfil)out.push(d.perfil==='administrador'?'como administrador':`perfil ${d.perfil}`);if(d.primeiro)out.push('primeiro PIN');
+ if(d.adicionadas?.length)out.push('liberou: '+d.adicionadas.map(label).join(', '));if(d.removidas?.length)out.push('retirou: '+d.removidas.map(label).join(', '));
+ if(d.sessoesEncerradas)out.push('sessão encerrada');if(d.turno)out.push(`turno #${d.turno}`);if(d.situacao)out.push(CLOSE_STATUS[d.situacao]?.[0]||d.situacao);
+ if(d.venda)out.push(`venda #${d.venda}`);
+ if(d.motivo)out.push(d.motivo==='acesso_bloqueado'?'acesso bloqueado':d.motivo==='permissoes_a_revisar'?'permissões a revisar':`“${d.motivo}”`);
+ if(d.descricao)out.push(`“${d.descricao}”`);if(d.terminal)out.push(`terminal ${d.terminal}`);if(d.bloqueado)out.push('PIN bloqueado por tentativas');if(d.produto)out.push(d.produto);
+ if(d.deCentavos!=null&&d.paraCentavos!=null)out.push(`${money(d.deCentavos)} → ${money(d.paraCentavos)}`);
+ if(d.valorCentavos!=null)out.push(money(d.valorCentavos));if(d.limiteCentavos!=null)out.push(`limite ${money(d.limiteCentavos)}`);if(d.permissao)out.push(label(d.permissao));
+ return out.join(' · ');
+}
+function opRow(o){
+ const [st,tone]=opState(o),on=A.opSel===o.id||A.opPin===o.id;
+ const changed=o.permissionsChangedAt?` · permissões alteradas em ${when(o.permissionsChangedAt)}${o.permissionsChangedBy?` por ${safe(o.permissionsChangedBy)}`:''}`:'';
+ const access=!o.hasPin?'':o.active?`<button type="button" class="danger" data-act="op-block" data-id="${o.id}">${icon('lock')}Bloquear</button>`:`<button type="button" class="primary" data-act="op-unblock" data-id="${o.id}">${icon('unlock')}Liberar</button>`;
+ return `<div class="adm-op${on?' current':''}"><span class="avatar">${safe(initials(o.name))}</span>
+  <div class="adm-op-main"><strong>${safe(o.name)}</strong><small>${o.hasPin?`PIN definido em ${when(o.pinChangedAt)}`:'Ainda sem PIN'}${changed}</small></div>
+  <span class="adm-badge ${tone}">${safe(st)}</span>
+  <div class="adm-op-actions"><button type="button" class="secondary" data-act="op-pin" data-id="${o.id}">${icon('key')}${o.hasPin?'Trocar PIN':'Definir PIN'}</button><button type="button" class="secondary" data-act="op-perms" data-id="${o.id}">${icon('sliders')}Permissões</button>${access}</div></div>`;
+}
+function pinCard(o){
+ const defaults=o.hasPin?'':`<label class="check-row perm"><input type="checkbox" name="defaults" checked/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>Começar com as permissões do operador padrão</strong><small>Vender, cobrar e abrir e fechar o caixa sem ver o saldo. Dá para ajustar depois em Permissões.</small></span></label>`;
+ return `<div class="card"><div class="card-title"><span>${o.hasPin?'Trocar o PIN':'Definir o PIN'} de ${safe(o.name)}</span>${icon('key')}</div>
+  <form class="form" data-form="op-pin" data-id="${o.id}" autocomplete="off" novalidate>
+   <label>Novo PIN (6 a 8 números)<input name="pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required autofocus data-digits/></label>
+   <label>Repita o PIN<input name="repeat" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required data-digits/></label>
+   ${defaults}
+   <p class="adm-error hidden" data-error role="alert"></p>
+   <div class="form-actions"><button type="submit" class="primary">${icon('check')}Salvar PIN</button><button type="button" class="link-btn" data-act="op-close">Cancelar</button></div>
+  </form>
+  <p class="minor top-gap">O sistema não aceita PINs fáceis, como 111111, 123456 ou 121212. Entregue o PIN pessoalmente: ele não aparece de novo.${o.hasPin?' Trocar o PIN encerra a sessão aberta dessa pessoa.':''}</p></div>`;
+}
+function permCard(o){
+ const g=A.ops.catalog;
+ const box=p=>`<label class="check-row perm"><input type="checkbox" name="${safe(p.id)}" ${o.permissions[p.id]?'checked':''}/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>${safe(p.label)}${p.critical?' <span class="tag warn">crítica</span>':''}</strong>${p.note?`<small>${safe(p.note)}</small>`:''}</span></label>`;
+ return `<div class="card"><div class="card-title"><span>Permissões de ${safe(o.name)}</span>${icon('sliders')}</div>
+  ${o.review?notice('Estas permissões mudaram fora desta tela (por exemplo, numa restauração de backup). Confira e salve para liberar a entrada no caixa.','warn','alert'):''}
+  ${o.hasPin?'':notice('Esta pessoa ainda não tem PIN: as permissões valem quando ela tiver um.','','info')}
+  <form class="form" data-form="op-perms" data-id="${o.id}">
+   ${g.groups.map(gr=>`<fieldset class="adm-perms"><legend>${safe(gr.name)}</legend>${gr.permissions.map(box).join('')}</fieldset>`).join('')}
+   <p class="minor">Só o administrador: ${(g.adminOnly||[]).map(id=>ADMIN_ONLY[id]||id).join(', ')}.</p>
+   <div class="form-actions"><button type="submit" class="primary">${icon('check')}${o.review?'Revisar e salvar':'Salvar permissões'}</button><button type="button" class="secondary" data-act="op-defaults" data-id="${o.id}">${icon('refresh')}Restaurar padrão do operador</button><button type="button" class="link-btn" data-act="op-close">Fechar</button></div>
+  </form>
+  <p class="minor top-gap">As mudanças valem na hora, também para quem já está no caixa. Tirar uma permissão crítica encerra a sessão aberta da pessoa.</p></div>`;
+}
+const limitCard=s=>`<div class="card"><div class="card-title"><span>Sangria sem ver o saldo</span>${icon('wallet')}</div>
+  <p class="minor">Quem fecha o caixa às cegas pode fazer sangrias de até este valor por vez. Acima dele, só quem vê o saldo do caixa, ou o administrador.</p>
+  <form class="form" data-form="op-limit"><label>Limite por sangria (R$)<input name="limit" inputmode="decimal" value="${price(s.blindWithdrawalLimitCents)}" maxlength="12" required/></label><div class="form-actions"><button type="submit" class="secondary">${icon('check')}Salvar limite</button></div></form></div>`;
+function auditCard(){
+ const label=permLabel(),list=A.opsAudit||[];
+ const line=a=>{const d=detailText(a.detail,label);return `<div class="rowline"><span class="ev-icon ${a.ok?'in':'out'}">${icon(a.ok?'check':'alert')}</span><div class="grow"><strong>${safe(ACTIONS[a.action]||a.action)}</strong><small>${when(a.at)} · ${safe(a.username||'—')}${d?` · ${safe(d)}`:''}</small></div></div>`;};
+ return `<div class="card"><div class="card-title"><span>Registro do caixa</span><span class="minor">${plural(list.length,'evento recente','eventos recentes')}</span></div>
+  ${list.length?`<div class="adm-audit">${list.map(line).join('')}</div>`:emptyState('history','Nada registrado ainda','')}</div>`;
+}
+VIEWS.usuarios=()=>{
+ const {operators,settings}=A.ops;const sel=opById(A.opSel),pinFor=opById(A.opPin);
+ const alerts=operators.filter(o=>o.review).map(o=>({level:'aviso',text:`As permissões de ${o.name} mudaram fora desta tela. ${o.name} só entra no caixa depois que você revisar e salvar.`}));
+ const people=operators.length?`<div class="adm-ops">${operators.map(opRow).join('')}</div>`
+  :`${emptyState('users','Nenhum funcionário cadastrado','Cadastre a equipe na tela Funcionários; depois defina o PIN de cada pessoa aqui.')}<div class="form-actions"><button type="button" class="primary" data-goto="funcionarios">${icon('users')}Cadastrar funcionários</button></div>`;
+ const list=`<div class="card"><div class="card-title"><span>Funcionários</span><span class="minor">${plural(operators.filter(o=>o.hasPin&&o.active).length,'pessoa com acesso','pessoas com acesso')}</span></div>
+  ${people}
+  <p class="minor top-gap">O administrador entra no caixa com o usuário e a senha deste painel e pode tudo. Nenhum funcionário tem PIN padrão: cada um recebe o seu aqui.</p></div>`;
+ const side=pinFor?pinCard(pinFor):sel?permCard(sel):limitCard(settings);
+ return `${head('Usuários e permissões','Quem entra no caixa, com qual PIN, e o que cada pessoa pode fazer.')}
+  ${alertList(alerts)}
+  <div class="columns">${list}${side}</div>
+  <div class="columns top-gap">${pinFor||sel?limitCard(settings):''}${auditCard()}</div>`;
+};
+
 // --- Actions ------------------------------------------------------------------------------------------------------
 const formData=form=>Object.fromEntries(new FormData(form).entries());
 const showError=(form,msg)=>{const p=form.querySelector('[data-error]');if(!p)return flash(msg,true);p.textContent=msg;p.classList.toggle('hidden',!msg);};
@@ -448,7 +541,7 @@ const FORMS={
   const {username,password}=formData(form);showError(form,'');
   await guardForm(form,btn,async()=>{
    const r=await apiPost('login',{username,password});
-   A.current=r.user.mustChangePassword?password:null;go(r.user.mustChangePassword?'password':'panel');
+   A.current=r.user.mustChangePassword?password:null;go(r.user.mustChangePassword?'password':'panel');if(!r.user.mustChangePassword)tell('luminor-admin-ready');
   });
  },
  async recover(form,btn){
@@ -458,7 +551,7 @@ const FORMS={
  async password(form,btn){
   showError(form,'');if(!checkRules(form))return showError(form,'Confira os requisitos da nova senha.');
   const {next}=formData(form);const current=form.elements.current?form.elements.current.value:A.current;
-  await guardForm(form,btn,async()=>{await apiPost('change-password',{current,next});A.current=null;flash('Senha definida. Guarde-a em local seguro.');go('panel');});
+  await guardForm(form,btn,async()=>{await apiPost('change-password',{current,next});A.current=null;flash('Senha definida. Guarde-a em local seguro.');go('panel');tell('luminor-admin-ready');});
  },
  async 'change-password'(form,btn){
   showError(form,'');if(!checkRules(form))return flash('Confira os requisitos da nova senha.',true);
@@ -481,6 +574,35 @@ const FORMS={
  async 'backup-folder'(form,btn){
   const {extraFolder}=formData(form);
   await guard(btn,async()=>{await apiPost('backup/settings',{extraFolder});flash(extraFolder.trim()?'Pasta salva. Os próximos backups também serão copiados para lá.':'Cópia desligada');go('backup');});
+ },
+ // The PIN is checked again on the server (6 to 8 digits, none of the easy ones); it is never shown or stored here.
+ async 'op-pin'(form){
+  const o=opById(form.dataset.id);if(!o)return;const {pin,repeat}=formData(form);showError(form,'');
+  if(!/^\d{6,8}$/.test(pin))return showError(form,'O PIN deve ter de 6 a 8 números.');
+  if(pin!==repeat)return showError(form,'Os dois PINs não são iguais.');
+  const applyDefaults=!o.hasPin&&!!form.elements.defaults?.checked;
+  const r=await withPassword({title:`${o.hasPin?'Trocar':'Definir'} o PIN de ${o.name}?`,iconName:'key',confirmLabel:'Salvar PIN',
+   message:o.hasPin?'O PIN antigo deixa de valer e a sessão aberta dessa pessoa é encerrada.':applyDefaults?'A pessoa começa com as permissões do operador padrão.':'A pessoa começa sem nenhuma permissão: libere o que ela pode fazer em Permissões.'},
+   pw=>apiPost('operators/credentials',{employeeId:o.id,pin,applyDefaults,password:pw}));
+  if(r){form.reset();A.opPin=null;flash(`PIN de ${o.name} salvo. Entregue pessoalmente.`);go('usuarios');}
+ },
+ async 'op-perms'(form){
+  const o=opById(form.dataset.id);if(!o)return;const label=permLabel();
+  const next=Object.fromEntries([...form.querySelectorAll('input[type="checkbox"]')].map(i=>[i.name,i.checked]));
+  const changes=Object.fromEntries(Object.entries(next).filter(([k,v])=>!!o.permissions[k]!==v));
+  const added=Object.keys(changes).filter(k=>changes[k]),removed=Object.keys(changes).filter(k=>!changes[k]);
+  if(!added.length&&!removed.length&&!o.review)return flash('Nenhuma permissão mudou.');
+  const r=await withPassword({title:o.review&&!added.length&&!removed.length?`Confirmar as permissões de ${o.name}?`:`Salvar as permissões de ${o.name}?`,iconName:'shield',confirmLabel:'Salvar permissões',
+   message:removed.some(isCritical)?'Uma permissão crítica foi retirada: a sessão aberta dessa pessoa termina agora.':'As mudanças valem na hora, também se a pessoa já estiver no caixa.',
+   details:[added.length&&['Liberar',added.map(label).join(', ')],removed.length&&['Retirar',removed.map(label).join(', ')]].filter(Boolean)},
+   pw=>apiPost('operators/permissions',{employeeId:o.id,permissions:changes,password:pw}));
+  if(r){flash(`Permissões de ${o.name} salvas`);A.opSel=null;go('usuarios');}
+ },
+ async 'op-limit'(form){
+  const {limit}=formData(form);const cents=parseMoney(limit);if(cents===null)return flash('Use valor como 200,00',true);
+  const r=await withPassword({title:'Alterar o limite de sangria?',message:`Sem ver o saldo, cada sangria poderá ser de até ${money(cents)}.`,confirmLabel:'Salvar limite',iconName:'wallet'},
+   pw=>apiPost('operators/settings',{blindWithdrawalLimit:limit,password:pw}));
+  if(r){flash('Limite de sangria salvo');go('usuarios');}
  },
  async 'restore-key'(form,btn){
   const {key}=formData(form);await guard(btn,()=>validateRestore(key));
@@ -507,9 +629,10 @@ async function uploadRestore(input){
  catch(e){if(!(await sessionLost(e))){flash(e.message,true);A.restore=null;draw();}}
 }
 const ACTS={
- home:()=>go('home'),enter,
+ // Leaving the sign-in without entering: in the first access the till goes back to its own sign-in screen.
+ home:()=>{if(!A.status?.authenticated||A.status.user?.scope!=='completo')tell('luminor-admin-signed-out');go('home');},enter,
  go:b=>go(b.dataset.to),
- async logout(b){await guard(b,async()=>{await apiPost('logout');});A.restore=null;A.key=null;A.code=null;A.lastBackup=null;A.cloud={test:null,prepared:false};go('home');},
+ async logout(b){await guard(b,async()=>{await apiPost('logout');});A.restore=null;A.key=null;A.code=null;A.lastBackup=null;A.cloud={test:null,prepared:false};A.ops=A.opsAudit=A.opSel=A.opPin=null;go('home');tell('luminor-admin-signed-out');},
  integrity:b=>guard(b,async()=>{const r=await apiPost('database/integrity');flash(r.ok?'Banco íntegro':`Problema encontrado: ${r.message}`,!r.ok);go(A.view);}),
  async 'db-prepare'(){
   const r=await withPassword({title:'Preparar o banco na nuvem?',message:'Cria as tabelas do PDV no banco do Supabase testado. Nada muda no banco deste computador.',confirmLabel:'Preparar',iconName:'database'},pw=>apiPost('database/prepare',{password:pw}));
@@ -557,14 +680,38 @@ const ACTS={
  },
  async 'code-new'(){const r=await withPassword({title:'Gerar código de recuperação?',message:'O código anterior, se existir, deixa de valer.',confirmLabel:'Gerar código',iconName:'key'},pw=>apiPost('recovery-code',{password:pw}));if(r){A.code=r.result.code;A.status=await status().catch(()=>A.status);draw();}},
  'code-hide':()=>{A.code=null;go('seguranca');},
+ 'op-pin':b=>{A.opPin=Number(b.dataset.id);A.opSel=null;draw();},
+ 'op-perms':b=>{A.opSel=Number(b.dataset.id);A.opPin=null;draw();},
+ 'op-close':()=>{A.opSel=A.opPin=null;draw();},
+ async 'op-defaults'(b){
+  const o=opById(b.dataset.id);if(!o)return;const label=permLabel();
+  const r=await withPassword({title:`Restaurar o padrão de ${o.name}?`,message:`Todas as permissões voltam ao perfil do operador padrão: ${A.ops.catalog.defaults.map(label).join(', ')}.`,confirmLabel:'Restaurar padrão',iconName:'refresh'},
+   pw=>apiPost('operators/permissions',{employeeId:o.id,reset:true,password:pw}));
+  if(r){flash(`Permissões de ${o.name} no padrão do operador`);A.opSel=null;go('usuarios');}
+ },
+ // Blocking only takes access away: no password. Giving it back asks for it.
+ async 'op-block'(b){
+  const o=opById(b.dataset.id);if(!o)return;
+  if(!await ask(`Bloquear o acesso de ${o.name}?`,'A pessoa sai do caixa agora e não entra mais até você liberar. O PIN e as permissões ficam guardados.',{confirmLabel:'Bloquear acesso',tone:'danger-solid'}))return;
+  await guard(null,async()=>{await apiPost('operators/disable',{employeeId:o.id,active:false});flash(`Acesso de ${o.name} bloqueado`);go('usuarios');});
+ },
+ async 'op-unblock'(b){
+  const o=opById(b.dataset.id);if(!o)return;
+  const r=await withPassword({title:`Liberar o acesso de ${o.name}?`,message:'A pessoa volta a entrar no caixa com o PIN que já tinha.',confirmLabel:'Liberar acesso',iconName:'unlock'},pw=>apiPost('operators/disable',{employeeId:o.id,active:true,password:pw}));
+  if(r){flash(`Acesso de ${o.name} liberado`);go('usuarios');}
+ },
  'diag-export':b=>guard(b,async()=>{const n=await download('diagnostics/export',{},{description:'Diagnóstico do Luminor PDV',extension:'.json',mime:'application/json'});if(n)flash(`Diagnóstico salvo: ${n}`);})
 };
 function wire(){
  const el=root();if(!el||el._wired)return;el._wired=true;
  el.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b||!el.contains(b))return;const f=ACTS[b.dataset.act];if(f){e.preventDefault();f(b);}});
  el.addEventListener('submit',e=>{const form=e.target.closest('[data-form]');if(!form)return;e.preventDefault();const f=FORMS[form.dataset.form];if(f)f(form,form.querySelector('[type="submit"]'));});
- el.addEventListener('input',e=>{if(e.target.matches('[data-strength]'))checkRules(e.target.form);});
+ el.addEventListener('input',e=>{if(e.target.matches('[data-strength]'))checkRules(e.target.form);
+  if(e.target.matches('[data-digits]')){const v=e.target.value.replace(/D/g,'').slice(0,8);if(v!==e.target.value)e.target.value=v;}});
  el.addEventListener('change',e=>{if(e.target.id==='adm-restore-file')uploadRestore(e.target);});
 }
-window.LuminorAdmin={open(){wire();const v=A.view;go(['home','login','recover','password','demo','erro'].includes(v)?(v==='erro'?'home':v):v);}};
+window.LuminorAdmin={open(){wire();const v=A.view;go(['home','login','recover','password','demo','erro'].includes(v)?(v==='erro'?'home':v):v);},
+ // From the till's sign-in screen: the new password (first access, current: the password just typed there) or the
+ // recovery with the emergency code.
+ start(view,{current=null}={}){wire();A.current=current;go(view);}};
 })();

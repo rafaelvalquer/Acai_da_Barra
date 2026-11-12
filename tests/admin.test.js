@@ -114,18 +114,22 @@ test('the session cookie is HttpOnly, SameSite=Strict and limited to /api/admin;
 
 test('the operator at the counter has no way into the Admin area',{skip:SKIP},async()=>{
   const t=await boot();try{
-    await setupAdmin(t);const admin=t.cookie;t.cookie=null;
-    await openShift(t,'Operadora');await sell(t);
+    // An employee signing in ends any Admin area session open on the computer; the administrator signs in again.
+    await setupAdmin(t);await openShift(t,'Operadora');await sell(t);const admin=t.cookie;t.cookie=null;
     // An employee of the PDV is not an administrator, whatever is typed.
     assert.equal((await login(t,TEST_ADMIN_PASSWORD,'Operadora')).status,401);
     const gets=['overview','database','backup','diagnostics','access-log','audit'];
-    for(const p of gets)assert.equal((await t.get('/api/admin/'+p,null)).status,401,p);
+    // Signed in at the till, she is known but not allowed (403, A08); without the till session it is a plain 401.
+    for(const p of gets)assert.equal((await t.get('/api/admin/'+p,null)).status,403,p);
+    const till=t.pos;t.pos=null;for(const p of gets)assert.equal((await t.get('/api/admin/'+p,null)).status,401,p);t.pos=till;
     const posts=['logout','change-password','change-username','recovery-code','database/integrity','database/test','database/prepare','database/sync/enable','database/sync/disable','database/sync/now','database/sync/resend','database/convert','database/use-local',
       'backup/export','backup/download','backup/settings','backup/recovery-key','backup/recovery-key/confirm','backup/restore/validate','backup/restore/cancel','backup/restore','diagnostics/export'];
-    for(const p of posts){const r=await t.post('/api/admin/'+p,{password:TEST_ADMIN_PASSWORD},null);assert.ok([401,200].includes(r.status)&&(p==='logout'||r.status===401),`${p}: ${r.status}`);}
-    assert.equal((await t.upload(Buffer.from('x'),null)).status,401);
+    for(const p of posts){const r=await t.post('/api/admin/'+p,{password:TEST_ADMIN_PASSWORD},null);assert.ok([403,200].includes(r.status)&&(p==='logout'||r.status===403),`${p}: ${r.status}`);}
+    assert.equal((await t.upload(Buffer.from('x'),null)).status,403);
     // A forged or old cookie does not help.
-    assert.equal((await t.get('/api/admin/overview','luminor_admin=abc')).status,401);
+    assert.equal((await t.get('/api/admin/overview','luminor_admin=abc')).status,403);
+    // Every refusal is in the administrative log.
+    assert.ok((await adminAudit(t)).includes('acesso_negado'));
     // POSTs need the page token and the same origin, even with a valid administrator session.
     let r=await fetch(t.base+'/api/admin/change-password',{method:'POST',headers:{'Content-Type':'application/json',Cookie:admin},body:JSON.stringify({current:TEST_ADMIN_PASSWORD,next:OTHER_PASSWORD})});assert.equal(r.status,403);
     r=await fetch(t.base+'/api/admin/backup/export',{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':t.token,Origin:'http://evil.example',Cookie:admin},body:'{}'});assert.equal(r.status,403);

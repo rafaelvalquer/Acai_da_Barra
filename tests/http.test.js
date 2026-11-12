@@ -1,18 +1,20 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),http=require('node:http');
 const {randomUUID}=require('node:crypto');
-const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');const {tempStore,count}=require('./helpers');
-// Real HTTP server on a random port with a throwaway database, exercised the way the browser does.
+const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');const {tempStore,count}=require('./helpers');const {posAuth}=require('./pos-helpers');
+// Real HTTP server on a random port with a throwaway database, exercised the way the browser does, by Carla signed
+// in at the till with every permission.
 async function boot(){
  const box=await tempStore('luminor-http-');const db=box.s;const scale=new ScaleDriver();
- const server=createServer({db,scale});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const pos=await posAuth(db);const me=await pos.signIn('Carla');
+ const server=createServer({db,scale,auth:pos.auth,simulator:'open'});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const base=`http://127.0.0.1:${server.address().port}`;
- const get=async p=>{const r=await fetch(base+p);return {status:r.status,body:await r.json()};};
+ const get=async(p,cookie=me.cookie)=>{const r=await fetch(base+p,{headers:cookie?{Cookie:cookie}:{}});return {status:r.status,body:await r.json()};};
  const {token}=(await get('/api/session')).body;
- const post=async(p,body={},headers={})=>{const r=await fetch(base+p,{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':token,...headers},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
- return {db,scale,server,base,get,post,async close(){scale.disconnect();server.closeAllConnections();await new Promise(r=>server.close(r));await box.clean();}};
+ const post=async(p,body={},headers={},cookie=me.cookie)=>{const r=await fetch(base+p,{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':token,...(cookie?{Cookie:cookie}:{}),...headers},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
+ return {db,scale,server,base,get,post,pos,me,async close(){scale.disconnect();server.closeAllConnections();await new Promise(r=>server.close(r));await pos.close();await box.clean();}};
 }
-async function openWithOperator(t,opening='0,00'){const op=(await t.post('/api/employees/save',{name:'Carla'})).body.result.id;assert.equal((await t.post('/api/shift/open',{opening,operatorId:op})).status,200);return op;}
+async function openWithOperator(t,opening='0,00'){assert.equal((await t.post('/api/shift/open',{opening})).status,200);return t.me.id;}
 
 test('writes need the session token and requests must come from the local host',async()=>{
  const t=await boot();try{

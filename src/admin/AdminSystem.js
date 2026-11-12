@@ -8,6 +8,7 @@ const {HardwareConfig}=require('../hardware');const {AdminSettingsService}=requi
 const {AdminSessionService}=require('../auth/AdminSessionService');const {AdminBootstrap}=require('../auth/AdminBootstrap');const {AdminAuthService}=require('../auth/AdminAuthService');
 const {BackupService}=require('../backup/BackupService');const {DatabaseMigrationService}=require('../database/DatabaseMigrationService');const {CloudSync}=require('../sync/CloudSync');
 const {describeUrl}=require('../database/DatabaseManager');const {AdminApi}=require('./AdminApi');const {mask}=require('../logger');
+const {PosAuth}=require('../auth/PosAuth');
 const httpError=(status,message)=>Object.assign(Error(message),{status});
 const STARTED=new Date().toISOString();
 class AdminSystem {
@@ -27,7 +28,15 @@ class AdminSystem {
     databases.onReconnect=()=>this.migration.convertLegacy();
     this.api=new AdminApi(this);
   }
-  static async start(opts){const s=new AdminSystem(opts);await s.bootstrap.ensure();await s.backups.start({schedule:opts.schedule!==false});await s.sync.start();return s;}
+  static async start(opts){const s=new AdminSystem(opts);await s.bootstrap.ensure();await s.startTill();await s.backups.start({schedule:opts.schedule!==false});await s.sync.start();return s;}
+  // Sign-in at the till (src/auth/PosAuth.js): the employees' PINs and the till sessions, in config/admin.sqlite. The
+  // commercial database is reached through this.db, so a restore or a change of database is followed.
+  async startTill(){
+    const self=this;const db={accessIndex:()=>self.db.accessIndex(),savePermissions:(...a)=>self.db.savePermissions(...a),employeePermissions:(...a)=>self.db.employeePermissions(...a)};
+    this.pos=new PosAuth({adminStore:this.adminStore,adminAuth:this.auth,db,pepper:await PosAuth.pepper(this.vault),audit:e=>this.audit(e),terminal:os.hostname()});
+    this.sessions.onDestroyAll=userId=>this.pos.adminSessionsEnded(userId);
+    await this.adminStore.pruneAudit().catch(e=>this.log.warn?.(`Registro administrativo antigo não removido: ${e.message}`));
+  }
   get db(){return this.databases.store;}
   get version(){return this.config.version;}
   maintenance(){return this.maintenanceMessage;}

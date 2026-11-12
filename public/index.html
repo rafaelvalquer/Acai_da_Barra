@@ -59,7 +59,7 @@
 <header class="topbar">
  <div class="brand"><img class="logo" src="/logo.svg" alt="Açaí da Barra" width="112" height="56"/><div class="brand-text"><strong>Luminor PDV</strong><small>Frente de caixa da loja</small></div></div>
  <div class="topright">
-  <button class="op-btn" id="operator-btn" title="Trocar operador"><span class="avatar" id="operator-avatar"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></span><span><small>Operador</small><strong id="operator-name">Selecionar</strong></span></button>
+  <button class="op-btn" id="operator-btn" title="Quem está no caixa: bloquear, trocar ou sair" aria-haspopup="dialog"><span class="avatar" id="operator-avatar"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></span><span><small id="operator-role">Operador</small><strong id="operator-name">Entrar</strong></span></button>
   <span class="pill cloud-badge hidden" id="cloud-badge" role="status"></span><span class="pill" id="connection">Balança offline</span><span class="pill" id="cash-badge">Caixa fechado</span>
  </div>
 </header>
@@ -98,7 +98,7 @@
     <div class="reading"><strong id="weight-value">0,000</strong><span>kg</span></div>
     <div class="status-row"><span id="weight-status" class="chip">Aguardando</span><span class="hint" id="weight-instructions">Ative a balança ou o simulador</span></div>
     <div class="weight-foot">
-     <label class="price-field">Preço por quilo<span class="input-prefix"><span>R$</span><input id="price-kg" inputmode="decimal" placeholder="64,90"/></span></label>
+     <label class="price-field" id="price-field">Preço por quilo<span class="input-prefix"><span>R$</span><input id="price-kg" inputmode="decimal" placeholder="64,90"/></span></label>
      <button class="ghost-light" id="btn-price"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Salvar</button>
      <div class="preview"><small>Valor da pesagem</small><strong id="weight-price">R$ 0,00</strong></div>
     </div>
@@ -107,7 +107,7 @@
      <button class="ghost-light" id="btn-manual"><svg class="i" aria-hidden="true"><use href="#i-keyboard"/></svg><span>Digitar peso ou valor</span></button>
     </div>
     <div class="capture-pending hidden" id="capture-pending" role="alert"></div>
-    <label class="switch"><input type="checkbox" id="auto-capture"/><span class="track" aria-hidden="true"></span>Lançar automaticamente quando o peso estabilizar</label>
+    <label class="switch" id="auto-capture-row"><input type="checkbox" id="auto-capture"/><span class="track" aria-hidden="true"></span>Lançar automaticamente quando o peso estabilizar</label>
    </div>
    <div class="card qp-card">
     <div class="card-title"><span>Produtos avulsos</span><span class="minor" id="qp-count">Toque para adicionar</span></div>
@@ -165,14 +165,14 @@
  <div class="heading"><div><span class="eyebrow">Financeiro</span><h1>Controle de caixa</h1><p>Abertura, sangria, suprimento e fechamento do turno.</p></div></div>
  <div class="columns">
   <div class="card"><div class="card-title">Situação do turno</div><div id="cash-summary"></div><div class="hline"></div><div id="cash-open-sales"></div><div id="cash-controls"></div></div>
-  <div class="card"><div class="card-title">Movimentações do turno</div><div id="cash-events"></div></div>
+  <div class="card" id="cash-events-card"><div class="card-title">Movimentações do turno</div><div id="cash-events"></div></div>
  </div>
 </section>
 
 <section id="produtos" class="panel hidden">
  <div class="heading"><div><span class="eyebrow">Catálogo</span><h1>Produtos e estoque</h1><p>Itens vendidos por unidade, sem passar pela balança.</p></div></div>
  <div class="columns">
-  <div class="card"><div class="card-title" id="product-form-title">Cadastrar produto</div>
+  <div class="card" id="product-form-card"><div class="card-title" id="product-form-title">Cadastrar produto</div>
    <form id="product-form" class="form"><input id="product-id" type="hidden"/>
     <label>Nome do produto<input id="product-name" required placeholder="Água sem gás" maxlength="80"/></label>
     <div class="grid2"><label>Preço de venda (R$)<input id="product-price" required inputmode="decimal" placeholder="5,00"/></label><label>Quantidade em estoque<input id="product-stock" type="number" min="0" max="999999" value="0" required/></label></div>
@@ -209,11 +209,12 @@
 <section id="funcionarios" class="panel hidden">
  <div class="heading"><div><span class="eyebrow">Equipe</span><h1>Funcionários</h1><p>Toda venda, sangria e cancelamento fica registrada com o nome de quem está no caixa.</p></div></div>
  <div class="columns">
-  <div class="card"><div class="card-title" id="employee-form-title">Cadastrar funcionário</div>
+  <div class="card" id="employee-form-card"><div class="card-title" id="employee-form-title">Cadastrar funcionário</div>
    <form id="employee-form" class="form"><input id="employee-id" type="hidden"/>
     <label>Nome<input id="employee-name" required minlength="2" maxlength="40" placeholder="Ex.: Ana Paula" autocomplete="off"/></label>
     <div class="form-actions"><button type="submit" class="primary"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Salvar funcionário</button><button type="reset" class="link-btn">Cancelar edição</button></div>
    </form>
+   <p class="minor top-gap">Para entrar no caixa, cada pessoa precisa de um PIN próprio: o administrador define em Configurações › Administração do sistema › Usuários e permissões.</p>
   </div>
   <div class="card"><div class="card-title">Equipe ativa</div><div id="employee-list"></div></div>
  </div>
@@ -221,8 +222,9 @@
 
 <section id="balanca" class="panel hidden">
  <div class="heading"><div><span class="eyebrow">Hardware</span><h1>Balança Toledo Prix 3 Fit/2</h1><p>Versão fotografada: 6/15 kg. Comunicação Prt5, quando disponível.</p></div></div>
+ <div class="notice hidden" id="scale-locked"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg><span>A conexão da balança fica com o administrador.</span></div>
  <div class="columns">
-  <div class="card"><div class="card-title">Conectar balança real</div>
+  <div class="card" id="scale-connect-card"><div class="card-title">Conectar balança real</div>
    <p class="minor">A porta serial ou conversor autorizado precisa estar instalado e configurado.</p>
    <div class="form">
     <button class="secondary" id="btn-ports"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg>Buscar portas COM</button>
@@ -232,7 +234,7 @@
    </div>
    <div class="notice"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span>Para uma implantação real, confirmar versão do firmware, protocolo C14, velocidade C15 e tipo de interface com o manual e suporte Toledo.</span></div>
   </div>
-  <div class="card"><div class="card-title">Demonstração sem hardware</div>
+  <div class="card" id="demo-scale-card"><div class="card-title">Demonstração sem hardware</div>
    <p class="minor">Simule a colocação do prato e a retirada para mostrar o fluxo à cliente.</p>
    <button class="primary" id="btn-demo"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Ativar modo demonstração</button>
    <div class="demo-buttons">
@@ -245,6 +247,10 @@
    <div class="notice"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span><strong>Segurança:</strong> o sistema impede novo lançamento automático até a balança voltar a zero. Não é um software fiscal homologado.</span></div>
   </div>
  </div>
+</section>
+
+<section id="sem-acesso" class="panel hidden">
+ <div class="card"><div class="empty"><svg class="i lg" aria-hidden="true"><use href="#i-lock"/></svg><strong>Nenhuma tela liberada</strong><span>O administrador ainda não liberou nenhuma tela do caixa para você.</span></div></div>
 </section>
 
 <section id="configuracoes" class="panel hidden">
@@ -301,12 +307,42 @@
 </dialog>
 
 <dialog id="operator-dialog" class="modal" aria-labelledby="operator-title">
- <span class="modal-icon"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></span>
- <h2 id="operator-title">Quem está no caixa?</h2>
- <p>Toque no seu nome. As próximas vendas ficam registradas com ele.</p>
- <div id="operator-options" class="op-grid"></div>
- <form method="dialog"><button class="link-btn">Fechar</button></form>
+ <span class="modal-icon op-menu-avatar" id="operator-menu-avatar"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></span>
+ <h2 id="operator-title">—</h2>
+ <p id="operator-menu-text">As vendas, sangrias e cancelamentos ficam registrados com o seu nome.</p>
+ <div class="op-menu">
+  <button type="button" class="secondary big" id="btn-lock"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Bloquear o caixa</button>
+  <button type="button" class="danger big" id="btn-logout"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg>Sair e trocar de pessoa</button>
+ </div>
+ <p class="minor op-menu-note">Bloquear guarda tudo como está, e a mesma pessoa volta com o PIN. Para outra pessoa entrar, retire o produto da balança antes.</p>
+ <form method="dialog"><button class="link-btn">Voltar</button></form>
 </dialog>
+
+<section id="login-screen" class="login-screen hidden" aria-labelledby="login-title" role="dialog" aria-modal="true">
+ <div class="login-card">
+  <img class="login-logo" src="/logo.svg" alt="Açaí da Barra" width="112" height="56"/>
+  <span class="login-icon" id="login-icon"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg></span>
+  <h1 id="login-title">Quem está no caixa?</h1>
+  <p class="minor" id="login-sub">Toque no seu nome e digite o seu PIN.</p>
+  <div class="notice warn hidden" id="login-notice" role="status"></div>
+  <div class="op-grid login-people" id="login-people"></div>
+  <form class="form hidden" id="login-pin-form" autocomplete="off" novalidate>
+   <div class="login-who"><span class="avatar" id="login-avatar"></span><strong id="login-name">—</strong><button type="button" class="link-btn" id="login-other">Outra pessoa</button></div>
+   <label>PIN<input id="login-pin" class="login-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" enterkeyhint="go" aria-describedby="login-error"/></label>
+   <p class="adm-error hidden" id="login-error" role="alert"></p>
+   <button type="submit" class="primary big" id="login-pin-ok"><svg class="i" aria-hidden="true"><use href="#i-unlock"/></svg>Entrar</button>
+  </form>
+  <form class="form hidden" id="login-admin-form" autocomplete="on" novalidate>
+   <label>Usuário do administrador<input id="login-admin-user" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64"/></label>
+   <label>Senha<input id="login-admin-password" name="password" type="password" autocomplete="current-password" maxlength="128"/></label>
+   <p class="adm-error hidden" id="login-admin-error" role="alert"></p>
+   <button type="submit" class="primary big" id="login-admin-ok"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>Entrar como administrador</button>
+   <button type="button" class="link-btn hidden" id="login-admin-forgot">Esqueci a senha do administrador</button>
+  </form>
+  <div class="login-links"><button type="button" class="link-btn hidden" id="login-back"><svg class="i" aria-hidden="true"><use href="#i-chevron-left"/></svg>Voltar</button><button type="button" class="link-btn" id="login-admin-link"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>Acesso do administrador</button></div>
+  <p class="login-demo hidden" id="login-demo"></p>
+ </div>
+</section>
 
 <dialog id="sale-dialog" class="modal wide" aria-labelledby="sale-title">
  <div class="modal-head"><h2 id="sale-title">Venda</h2><form method="dialog"><button class="icon-btn" aria-label="Fechar"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></form></div>

@@ -6,7 +6,7 @@ const {randomUUID}=require('node:crypto');const {DatabaseSync}=require('node:sql
 const {decodeBackup}=require('../src/backup/BackupFormat');
 const {isPostgres,until,wait}=require('./helpers');
 const {SCHEMA_VERSION}=require('../src/database/schema');
-const {boot,newHome,ok,setupAdmin,login,openShift,active,sell,closeShift,backup,backupFile,keyOf,restore,salesCount,adminAudit}=require('./app-helpers');
+const {boot,newHome,ok,setupAdmin,login,atTill,openShift,active,sell,closeShift,backup,backupFile,keyOf,restore,salesCount,adminAudit}=require('./app-helpers');
 const {confirm,FAST,fakeCloud,connectTest,syncOf,settled,sameAsCloud,withCopy,oldCloudMode}=require('./cloud-helpers');
 const SKIP=isPostgres&&'a cópia na nuvem usa o próprio PostgreSQL de teste';
 // Time a request takes, in milliseconds.
@@ -132,7 +132,7 @@ test('a instalação do modo antigo (vendendo direto na nuvem) passa sozinha par
     assert.equal(await t.app.converting,true);
     assert.equal(t.app.db.adapter.dialect,'sqlite');assert.equal((await t.app.system.settings.database()).provider,'sqlite');
     // The sale made on the cloud and the shift still open there came along.
-    assert.equal(await salesCount(t),2);const st=(await t.get('/api/state')).body;assert.equal(st.cash.shift.opened_by_name,'Bia');assert.equal(st.cash.shift.closed_at,null);
+    await atTill(t);assert.equal(await salesCount(t),2);const st=(await t.get('/api/state')).body;assert.equal(st.cash.shift.opened_by_name,'Bia');assert.equal(st.cash.shift.closed_at,null);
     assert.ok(fs.readdirSync(t.config.paths.data).some(f=>f.includes('antes-da-volta')));
     assert.ok(fs.readdirSync(path.join(home,'backups','seguranca')).length>0);
     await settled(t);await sameAsCloud(t,cloud);
@@ -155,7 +155,7 @@ test('no modo antigo com a nuvem fora do ar ao iniciar, a passagem acontece quan
     cloud.down=false;t.app.databases.retryMs=20;t.app.databases.retry(t.app.databases.active);
     await until(()=>t.app.db.adapter.dialect==='sqlite',8000);await until(()=>syncOf(t).enabled);
     await settled(t);assert.equal(await salesCount(t),2);await sameAsCloud(t,cloud);
-    assert.equal((await t.get('/api/state')).status,200);
+    await atTill(t);assert.equal((await t.get('/api/state')).status,200);
   }finally{await t.stop();}
 });
 
@@ -185,18 +185,18 @@ test('P14 uma nuvem preparada pela versão anterior é atualizada ao conectar e 
     await openShift(t);ok(await t.post('/api/products/save',{name:'Coca-Cola 350 ml (delivery)',price:'8,00',stock:6}));await sell(t,'10,00');await settled(t);
     await t.stop();
     // The cloud as the previous version left it: products without the new columns, schema at version 4.
-    await cloud.db.exec('ALTER TABLE products DROP COLUMN category, DROP COLUMN channel, DROP COLUMN is_favorite; DELETE FROM schema_migrations WHERE version=5;');
+    await cloud.db.exec('DROP TABLE employee_permissions; ALTER TABLE products DROP COLUMN category, DROP COLUMN channel, DROP COLUMN is_favorite; DELETE FROM schema_migrations WHERE version>=5;');
     t=await boot(t.home,{connect:cloud.connect,syncTiming:FAST});
     // Nothing new was sold: the start alone reaches the cloud, updates it and sends everything again.
-    await until(()=>t.log.lines.some(l=>/atualizado da versão 4 para a 5/.test(l)));await settled(t);await sameAsCloud(t,cloud);
+    await until(()=>t.log.lines.some(l=>new RegExp(`atualizado da versão 4 para a ${SCHEMA_VERSION}`).test(l)));await settled(t);await sameAsCloud(t,cloud);
     assert.equal(Number((await cloud.db.query('SELECT MAX(version) AS v FROM schema_migrations')).rows[0].v),SCHEMA_VERSION);
     assert.deepEqual((await cloud.db.query('SELECT category,channel FROM products')).rows,[{category:'Bebidas',channel:'delivery'}]);
-    assert.ok(t.log.lines.some(l=>/atualizado da versão 4 para a 5/.test(l)));assert.ok((await adminAudit(t)).includes('nuvem_atualizada'));
+    assert.ok(t.log.lines.some(l=>new RegExp(`atualizado da versão 4 para a ${SCHEMA_VERSION}`).test(l)));assert.ok((await adminAudit(t)).includes('nuvem_atualizada'));
     await t.stop();
     // Another PDV, already updated to a newer version, prepared the cloud: this one keeps selling and sends nothing.
     await cloud.db.exec(`INSERT INTO schema_migrations(version,applied_at) VALUES(${SCHEMA_VERSION+1},now())`);
     t=await boot(t.home,{connect:cloud.connect,syncTiming:FAST});
-    await sell(t,'5,00');await until(()=>syncOf(t).problem?.kind==='erro');
+    await atTill(t);await sell(t,'5,00');await until(()=>syncOf(t).problem?.kind==='erro');
     assert.match(syncOf(t).problem.message,/versão mais nova do PDV/);
     assert.equal(await salesCount(t),2);assert.equal(await cloud.count('sales'),1);
   }finally{await t.stop();}

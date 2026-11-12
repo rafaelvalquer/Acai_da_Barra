@@ -175,7 +175,8 @@ test('P13 a atualização do banco (versão 4 para 5) classifica os produtos e n
     const before=await snapshot();
     // Back to how version 4 stored products.
     for(const c of ['category','channel','is_favorite'])await sql(s,`ALTER TABLE products DROP COLUMN ${c}`);
-    if(isPostgres)await sql(s,'DELETE FROM schema_migrations WHERE version=5');else await s.adapter.exec('PRAGMA user_version=4');
+    // (version 6 came later and is applied again too)
+    if(isPostgres){await sql(s,'DROP TABLE employee_permissions');await sql(s,'DELETE FROM schema_migrations WHERE version>=5');}else await s.adapter.exec('PRAGMA user_version=4');
     s=await box.reopen();
     assert.equal(await s.adapter.schemaVersion(),SCHEMA_VERSION);assert.deepEqual(await snapshot(),before);
     const got=Object.fromEntries((await s.adapter.all('SELECT name,category,channel,is_favorite FROM products')).map(p=>[p.name,[p.category,p.channel,p.is_favorite]]));

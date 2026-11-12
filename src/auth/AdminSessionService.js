@@ -26,7 +26,8 @@ class AdminSessionService {
     return {userId:s.user_id,username:s.username,scope:s.scope,createdAt:s.created_at,token};
   }
   destroy(token){return this.store.run('DELETE FROM admin_sessions WHERE token_hash=?',[hash(token)]);}
-  destroyAll(userId){return this.store.run('DELETE FROM admin_sessions WHERE user_id=?',[userId]);}
+  // onDestroyAll (set by AdminSystem): the administrator's sessions at the till end too.
+  async destroyAll(userId){const r=await this.store.run('DELETE FROM admin_sessions WHERE user_id=?',[userId]);await this.onDestroyAll?.(userId);return r;}
   static cookie(token){return `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=${MAX_MS/1000}`;}
   static clearCookie(){return `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=0`;}
   static read(req){

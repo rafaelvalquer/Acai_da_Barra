@@ -4,6 +4,10 @@
 // cannot trigger them. Operations that change or replace data ask for the current password again.
 const fs=require('node:fs');
 const {AdminSessionService}=require('../auth/AdminSessionService');const {describeUrl}=require('../database/DatabaseManager');
+const {catalogView}=require('../auth/PermissionCatalog');
+// What the Usuários e permissões screen lists in its log.
+const OPERATOR_ACTIONS=['login_operador','login_operador_falhou','logout_operador','terminal_bloqueado','troca_pin','permissoes_alteradas','acesso_desativado','acesso_ativado',
+  'limite_sangria_alterado','caixa_aberto','caixa_fechado','venda_cancelada','venda_corrigida','sangria','suprimento','preco_kg_alterado','preco_produto_alterado','acesso_negado','venda_admin'];
 const httpError=(status,message)=>Object.assign(Error(message),{status});
 function sameOrigin(req){
   const host=req.headers.host;const o=req.headers.origin;if(o)return o===`http://${host}`;
@@ -16,7 +20,15 @@ class AdminApi {
   // scope "completo" for the Admin area; any session for signing out and setting the new password.
   async need(req,scope='completo'){
     const s=await this.session(req);
-    if(!s)throw httpError(401,'Entre com o usuário e a senha de administrador.');
+    if(!s){
+      // An employee signed in at the till is known but not allowed here (403, logged); anyone else must sign in (401).
+      const who=await this.sys.pos?.identify(req,{touch:false}).catch(()=>null);
+      if(who?.kind==='operador'){
+        await this.sys.audit({username:who.name,action:'acesso_negado',ok:false,detail:{permissao:'admin',rota:'/api/admin'}}).catch(()=>{});
+        throw httpError(403,'Somente o administrador acessa esta área. Peça ao administrador.');
+      }
+      throw httpError(401,'Entre com o usuário e a senha de administrador.');
+    }
     if(scope==='completo'&&s.scope!=='completo')throw httpError(403,'Defina a nova senha de administrador para continuar.');
     return s;
   }
@@ -33,6 +45,11 @@ class AdminApi {
         case 'diagnostics':return send(res,200,await sys.diagnostics());
         case 'access-log':return send(res,200,await sys.auth.recentAccess(40));
         case 'audit':return send(res,200,await sys.adminStore.recentAudit(80));
+        // Users and permissions: the employees of the commercial database, their access at the till and the catalog.
+        case 'operators':return send(res,200,{operators:await sys.pos.operators.listOperators(),catalog:catalogView(),
+          settings:{blindWithdrawalLimitCents:await sys.db.blindWithdrawalLimit()}});
+        case 'permissions/catalog':return send(res,200,catalogView());
+        case 'operators/audit':return send(res,200,await sys.adminStore.recentAudit(80,OPERATOR_ACTIONS));
         default:return fail(res,404,'Endereço não encontrado');
       }
     }
@@ -92,6 +109,17 @@ class AdminApi {
         result=await sys.backups.restorer.restore(b.uploadId,{actor:s});sys.onRestored?.();
         result.hardware=await sys.hardware.check(sys.scale);break;
       }
+      // A PIN, permissions or the blind withdrawal limit: the administrator's password again, as for any change of access.
+      case 'operators/credentials':{const s=await this.confirmed(req,b);result=await sys.pos.operators.setPin(b.employeeId,b.pin,{by:s.username,applyDefaults:b.applyDefaults===true});break;}
+      case 'operators/permissions':{const s=await this.confirmed(req,b);result=await sys.pos.operators.setPermissions(b.employeeId,b.permissions||{},{by:s.username,reset:b.reset===true});break;}
+      // Blocking needs no password (it only takes access away); giving it back does.
+      case 'operators/disable':{const active=b.active===true;const s=active?await this.confirmed(req,b):await this.need(req);result=await sys.pos.operators.setActive(b.employeeId,active,{by:s.username});break;}
+      case 'operators/settings':{
+        const s=await this.confirmed(req,b);const cents=await sys.db.setBlindWithdrawalLimit(b.blindWithdrawalLimit);
+        await sys.audit({username:s.username,action:'limite_sangria_alterado',detail:{limiteCentavos:cents}});result={blindWithdrawalLimitCents:cents};break;
+      }
+      // The administrator, already in the Admin area, takes the till with the same sign-in.
+      case 'pos-session':{const s=await this.need(req);const r=await sys.pos.adminAtTill(s,{scaleIdle:sys.scale.idle()});headers={'Set-Cookie':r.cookies};result=r.session;break;}
       case 'diagnostics/export':{
         const s=await this.need(req);const d=await sys.diagnostics({full:true});await sys.audit({username:s.username,action:'diagnostico_exportado'});
         const body=Buffer.from(JSON.stringify(d,null,2));
