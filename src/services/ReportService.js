@@ -4,7 +4,16 @@ const {assert,DAY_MS,localDay,dateRangeToday,parseDay,fmtDay,addDays,periodRange
 class ReportService {
   constructor(ctx){this.ctx=ctx;}
   salesBetween(from,to){return this.ctx.r.sales.listSales('s.created_at>=? AND s.created_at<?',[addDays(from,-1),addDays(to,2)]).then(rows=>inRange(rows,from,to));}
+  // filter.onlyShift: only the sales of that shift (someone allowed to see the history but not the reports sees the
+  // open shift and nothing older; set by the server, never taken from the request). onlyShift 0: no shift, nothing.
   async salesHistory(filter={}){
+    if(filter.onlyShift!==undefined){
+      const shiftId=Number(filter.onlyShift);if(!shiftId)return {shiftOnly:true,sales:[]};
+      if(filter.q){const n=Number(String(filter.q).trim().replace(/^#/,''));assert(Number.isSafeInteger(n)&&n>0,'Número da venda inválido');return {q:n,shiftOnly:true,sales:await this.ctx.r.sales.listSales('s.id=? AND s.shift_id=?',[n,shiftId])};}
+      let sales=await this.ctx.r.sales.listSales('s.shift_id=?',[shiftId]);
+      if(filter.status==='done'||filter.status==='canceled')sales=sales.filter(x=>x.status===filter.status);
+      return {shiftOnly:true,sales:sales.slice(0,500)};
+    }
     if(filter.q){const n=Number(String(filter.q).trim().replace(/^#/,''));assert(Number.isSafeInteger(n)&&n>0,'Número da venda inválido');return {q:n,sales:await this.ctx.r.sales.listSales('s.id=?',[n])};}
     const from=filter.from||dateRangeToday(),to=filter.to||from;
     assert(parseDay(from)<=parseDay(to),'Data inicial depois da final');assert(parseDay(to)-parseDay(from)<=366*DAY_MS,'Período máximo de um ano');

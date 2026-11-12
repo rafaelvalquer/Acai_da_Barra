@@ -550,3 +550,35 @@ input::placeholder{color:#b3a6b8}
  .cart-bottom .link-btn{padding:4px}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* Sign-in at the till: full screen over everything, until someone types their PIN (or the administrator signs in). */
+.login-screen{position:fixed;inset:0;z-index:60;overflow:auto;display:grid;place-items:center;padding:24px 16px;background:radial-gradient(circle at 85% 10%,rgba(166,80,136,.55),transparent 45%),linear-gradient(135deg,var(--berry) 0%,#47206a 60%,var(--navy) 100%)}
+body.signed-out{overflow:hidden}
+.login-card{width:min(520px,100%);background:#fff;border-radius:28px;padding:28px 26px 22px;color:var(--ink);text-align:center;box-shadow:var(--shadow-lg)}
+.login-logo{display:block;height:48px;width:auto;margin:0 auto 14px}
+.login-icon{width:56px;height:56px;margin:0 auto 12px;border-radius:18px;display:grid;place-items:center;background:var(--berry-tint);color:var(--berry)}
+.login-icon .i{width:26px;height:26px}
+.login-card h1{margin:0 0 6px;font-size:24px;font-weight:800;color:var(--berry);letter-spacing:-.02em}
+.login-card>.minor{margin:0 0 16px}
+.login-card .notice{text-align:left;margin:0 0 16px}
+.login-people{max-height:min(46vh,420px);overflow:auto;padding:2px;margin:0 -2px 6px}
+.login-people .op-option{min-height:64px;font-size:15px}
+.login-card .form{text-align:left}
+.login-who{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:var(--cream)}
+.login-who strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.login-pin{font-size:26px;letter-spacing:.35em;text-align:center;font-variant-numeric:tabular-nums}
+.login-links{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:14px}
+.login-links .link-btn{display:inline-flex;align-items:center;gap:4px}
+.login-links .link-btn:only-child,.login-links .hidden+.link-btn{margin-left:auto}
+.login-links .i{width:16px;height:16px}
+.login-demo{margin:14px 0 0;padding:12px 14px;border-radius:14px;background:#fff4e0;color:#6a4a12;font-size:12.5px;line-height:1.5;text-align:left;white-space:pre-line}
+#login-admin-forgot{justify-self:center}
+/* The person at the till: lock, sign out. */
+.op-menu{display:grid;gap:10px;margin-bottom:12px}
+.op-menu .big{justify-content:center}
+.op-menu-avatar{font-size:20px;font-weight:800}
+.op-menu-note{margin:0 0 6px!important;font-size:12.5px}
+/* Blind close: no amounts on screen, only what to do. */
+.blind-note{margin-top:14px}
+/* Setup (first access): only Configurações until the administrator's password is set. */
+body.setup #connection,body.setup #cash-badge,body.setup #cloud-badge{display:none}
+@media(max-width:520px){.login-card{padding:22px 18px 18px;border-radius:22px}.login-people{max-height:none}.op-grid{grid-template-columns:minmax(0,1fr)}}

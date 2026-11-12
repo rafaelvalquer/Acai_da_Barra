@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {EventEmitter}=require('node:events');
-const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');const {tempStore,until,wait}=require('./helpers');
+const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');const {tempStore,until,wait}=require('./helpers');const {posAuth}=require('./pos-helpers');
 const frame=payload=>Buffer.from([0x02,...Buffer.from(payload,'ascii'),0x03]);
 // Fake Toledo port: answers every ENQ with the current reading, the way the Prix 3 Fit does in Prt5.
 class FakePort extends EventEmitter{
@@ -21,10 +21,11 @@ const cart=async r=>{const id=await r.db.activeSaleId();return id?(await r.db.ge
 async function rig({open=true}={}){
  const box=await tempStore('luminor-scale-');const db=box.s;
  const op=(await db.saveEmployee({name:'Ana'})).id;if(open)await db.openShift('0',op);
- const scale=new ScaleDriver({SerialPort:FakePort,pollMs:10});createServer({db,scale});
+ const pos=await posAuth(db);const me=await pos.signIn('Ana');
+ const scale=new ScaleDriver({SerialPort:FakePort,pollMs:10});createServer({db,scale,auth:pos.auth});
  await scale.connect('COM9',2400);const port=FakePort.last;
  await until(()=>scale.snapshot().status==='stable');
- return {db,scale,port,op,clean(){scale.disconnect();return box.clean();}};
+ return {db,scale,port,op,pos,me,async clean(){scale.disconnect();await pos.close();return box.clean();}};
 }
 
 test('the scale sends a stable weight and it is added to the sale automatically, once',async()=>{

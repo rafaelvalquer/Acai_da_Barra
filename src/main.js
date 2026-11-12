@@ -12,7 +12,8 @@ const {Logger}=require('./logger');
 function startupError(config,e){
   try{const dir=config?.paths?.logs;if(dir){fs.mkdirSync(dir,{recursive:true});fs.appendFileSync(path.join(dir,'erros-inicializacao.log'),`[${new Date().toISOString()}] ${e.stack||e.message}\n`);}}catch(_){}
 }
-async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),listen=true,clock,hooks,connect,schedule=true,syncTiming}={}){
+// simulator: the scale simulator of the till (src/server.js), off unless PDV_SCALE_SIMULATOR=true.
+async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),listen=true,clock,hooks,connect,schedule=true,syncTiming,simulator}={}){
   prepareHome(config);log=log||new Logger({dir:config.paths.logs});
   const vault=new SecretVault(config.vaultFile,{mode:config.vault});await vault.load();
   const adminStore=await AdminStore.open(config.adminDbPath);
@@ -23,7 +24,7 @@ async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),liste
   const databases=new DatabaseManager({config,settings,vault,log,...(connect?{connect}:{})});
   const db=await databases.open();
   const system=await AdminSystem.start({config,databases,adminStore,vault,settings,scale,log,clock,hooks,schedule,syncTiming});
-  const server=createServer({db,scale,system});
+  const server=createServer({db,scale,system,auth:system.pos,...(simulator?{simulator}:{})});
   if(listen)await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,HOST,()=>{server.off('error',reject);resolve();});});
   const st=databases.status();
   log.info(`Luminor PDV ${config.version} iniciado em http://${HOST}:${server.address()?.port||config.port} · banco ${st.provider==='sqlite'?'local (SQLite) '+st.sqlite.path+(system.sync.enabled?' · cópia na nuvem ativa':''):'na nuvem (PostgreSQL, modo antigo) '+(st.postgres?.host||'')} · dados em ${config.home}`);

@@ -19,10 +19,11 @@ fs.copyFileSync(path.join(tmp,'seed.sqlite'),path.join(OUT,'demo-seed.sqlite'));
 fs.rmSync(tmp,{recursive:true,force:true});
 
 // The server modules run unchanged; Node built-ins are swapped for browser versions in backend.js. Only what the
-// shop floor uses goes in: backups, installation files and PostgreSQL (src/system.js and friends) stay out.
+// shop floor uses goes in: backups, installation files and PostgreSQL (src/system.js and friends) stay out, and so
+// does the installed PDV's sign-in (src/auth/PosAuth.js and its PIN hashing): the demo signs in with demo/auth.js.
 const SRC=path.join(ROOT,'src');
 const walk=dir=>fs.readdirSync(path.join(SRC,dir)).filter(f=>f.endsWith('.js')).map(f=>dir+'/'+f);
-const files=['protocol.js','scale.js','server.js','store.js',...walk('services').filter(f=>!f.includes('BackupService')),'database/Mutex.js','database/schema.js','database/catalog.js',
+const files=['protocol.js','scale.js','server.js','store.js',...walk('services').filter(f=>!f.includes('BackupService')),'auth/PermissionCatalog.js','auth/AuthorizationService.js','auth/CashVisibilityPolicy.js','database/Mutex.js','database/schema.js','database/catalog.js',
   ...walk('database/repositories'),'database/adapters/SQLiteAdapter.js','database/migrations/sqlite/index.js'];
 const sources=files.map(f=>`${JSON.stringify('/src/'+f)}:function(module,exports,require,__dirname){${read(path.join(SRC,f))}\n}`).join(',\n');
 fs.writeFileSync(path.join(OUT,'demo.js'),`(()=>{'use strict';
@@ -42,6 +43,7 @@ function makeRequire(builtins){
   };
   return requireFrom('/src');
 }
+${read(path.join(__dirname,'auth.js'))}
 ${read(path.join(__dirname,'backend.js'))}
 })();
 `);

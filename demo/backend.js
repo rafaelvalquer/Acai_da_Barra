@@ -43,7 +43,9 @@ const backend=(async()=>{
   if(!saved)moveToToday(raw);
   const db=await PdvStore.open(new SQLiteAdapter(raw));
   const scale=new ScaleDriver();scale.demo();
-  const {handler}=createServer({db,scale});
+  // The test identities of demo/auth.js; the simulator is open to whoever is signed in (there is no scale here).
+  const auth=createDemoAuth({db,require});await auth.prepare();
+  const {handler}=createServer({db,scale,auth,simulator:'open'});
   const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({db:toBase64(raw.export())}));}catch(_){}};
   if(!saved)save();
   return {save,call:(method,url,headers,body)=>new Promise(resolve=>{

@@ -84,6 +84,9 @@ class CloudSync {
   async attach(adapter){
     if(!this.enabled||adapter.dialect!=='sqlite'||adapter.unavailable)return;
     if(!(await ChangeLog.isInstalled(adapter))){await ChangeLog.install(adapter);await this.markFull('banco local substituído');}
+    // Already noting changes: a table added by an update of the program gets its triggers too (each one is created
+    // only if missing). Its rows existing before that are sent with the whole database the cloud upgrade sends.
+    else await ChangeLog.install(adapter);
     this.countedWrites=null;
   }
   async markFull(reason){

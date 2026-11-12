@@ -1,7 +1,7 @@
 'use strict';
 // Writing exported data into a database (SQLite or PostgreSQL). Values always go in as query parameters, in the
 // order of TABLES (every reference points to a table written before it); nothing from the data is run as SQL.
-const {TABLES,SCHEMA_VERSION}=require('../schema');const {resetIdentities}=require('../migrations/postgres');
+const {TABLES,SCHEMA_VERSION,tablesAt}=require('../schema');const {resetIdentities}=require('../migrations/postgres');
 const BATCH=200;
 // Rejects anything that is not exactly an export of the PDV's tables (unknown table or column, nested values).
 // version: the schema the export must have (an older one only where its rows go into a database of that version).
@@ -32,9 +32,10 @@ async function insertRows(q,data){
 async function replaceData(adapter,data,{version=SCHEMA_VERSION}={}){
   checkExport(data,version);
   await adapter.transaction(async q=>{
-    for(const t of [...TABLES].reverse())await q.run(`DELETE FROM ${t.name}`);
+    const tables=tablesAt(version);
+    for(const t of [...tables].reverse())await q.run(`DELETE FROM ${t.name}`);
     await insertRows(q,data);
-    if(adapter.dialect==='postgres')await resetIdentities(q,TABLES);
+    if(adapter.dialect==='postgres')await resetIdentities(q,tables);
   });
 }
 module.exports={checkExport,insertRows,replaceData};

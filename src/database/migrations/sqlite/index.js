@@ -48,12 +48,27 @@ const STEPS=[
     await addColumn(q,'products','channel',"TEXT NOT NULL DEFAULT 'loja' CHECK (channel IN ('loja','delivery'))");
     await addColumn(q,'products','is_favorite','INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0,1))');
     await classifyProducts(q);
+  },
+  // 6: what each employee may do at the till (src/auth/PermissionCatalog.js), one row per permission granted or
+  // refused. No row is created here: an employee without rows has no permission at all until the administrator
+  // gives them a PIN and a profile. PINs and sessions are not here: they stay in config/admin.sqlite.
+  async q=>{
+    await q.exec(`CREATE TABLE IF NOT EXISTS employee_permissions(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,employee_id INTEGER NOT NULL,permission TEXT NOT NULL,
+        allowed INTEGER NOT NULL DEFAULT 0 CHECK (allowed IN (0,1)),updated_at TEXT NOT NULL,updated_by TEXT,UNIQUE(employee_id,permission),FOREIGN KEY (employee_id) REFERENCES employees(id));
+      CREATE INDEX IF NOT EXISTS employee_permissions_employee ON employee_permissions(employee_id);`);
   }
 ];
 // until: stops at that version (tests and old backups rebuilt at the version they were made in).
+// A database already at a version this program does not know (written by a newer PDV) is never opened: the newer
+// version may keep things this one would ignore or undo.
 async function migrateSqlite(adapter,{until=STEPS.length}={}){
+  const found=await adapter.schemaVersion();
+  if(found>STEPS.length)throw newerError(found,STEPS.length);
   await adapter.exec(BASE);
-  for(let v=await adapter.schemaVersion();v<Math.min(until,STEPS.length);v++)
+  for(let v=found;v<Math.min(until,STEPS.length);v++)
     await adapter.transaction(async q=>{await STEPS[v](q);await q.exec(`PRAGMA user_version=${v+1}`);});
 }
-module.exports={migrateSqlite,SQLITE_VERSION:STEPS.length};
+function newerError(found,known){
+  return Object.assign(Error(`Este banco de dados é de uma versão mais nova do PDV (banco versão ${found}; este programa conhece até a ${known}). Instale a versão mais nova ou restaure o backup feito antes da atualização.`),{code:'banco_mais_novo',status:409});
+}
+module.exports={migrateSqlite,newerError,SQLITE_VERSION:STEPS.length};

@@ -175,3 +175,24 @@ button.busy::after{content:"";position:absolute;left:50%;top:50%;width:18px;heig
  .adm-step-actions>button{flex:1 1 100%}
 }
 @media(max-width:420px){.adm-grid{grid-template-columns:minmax(0,1fr)}.adm-card{min-height:0}}
+/* Usuários e permissões. */
+.adm-badge.warn{background:#fff1d9;color:#7d520e}
+.adm-ops{display:grid;gap:10px}
+.adm-op{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px 12px;padding:12px 14px;border:1.5px solid var(--line-2);border-radius:18px;background:#fff}
+.adm-op.current{border-color:var(--berry);box-shadow:0 0 0 3px rgba(94,33,72,.12)}
+.adm-op-main{min-width:0}
+.adm-op-main strong{display:block;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adm-op-main small{display:block;margin-top:2px;color:var(--muted);font-size:12px;line-height:1.4}
+.adm-op-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.adm-op-actions button{min-height:38px;padding:0 14px;font-size:13px}
+.adm-perms{border:0;margin:0 0 14px;padding:0;display:grid;gap:8px}
+.adm-perms legend{padding:0;margin-bottom:8px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.check-row.perm input:checked+.check-box{background:#e3f4e6;border-color:var(--green-2);color:var(--green)}
+.check-row.perm input:checked+.check-box .i{fill:none}
+.check-row.perm:has(input:checked){border-color:var(--green-2)}
+.check-row.perm .check-box .i{width:18px;height:18px;stroke-width:3}
+.check-row.perm input:not(:checked)+.check-box .i{opacity:0}
+.check-row.perm .tag{margin-left:6px;vertical-align:1px}
+.adm-audit{max-height:520px;overflow:auto}
+.adm-audit .rowline small{display:block;margin-top:2px;color:var(--muted);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+@media(max-width:520px){.adm-op{grid-template-columns:auto minmax(0,1fr)}.adm-op>.adm-badge{grid-column:2;justify-self:start}}

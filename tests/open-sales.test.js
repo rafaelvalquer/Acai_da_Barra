@@ -4,7 +4,7 @@ const {SCHEMA_VERSION}=require('../src/database/schema');
 const test=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {EventEmitter}=require('node:events');const {randomUUID}=require('node:crypto');const {DatabaseSync}=require('node:sqlite');
 const {ScaleDriver}=require('../src/scale');const {createServer}=require('../src/server');const {PdvStore}=require('../src/store');const {SQLiteAdapter}=require('../src/database/adapters/SQLiteAdapter');
-const {tempStore,count,until,isPostgres}=require('./helpers');
+const {tempStore,count,until,isPostgres}=require('./helpers');const {posAuth}=require('./pos-helpers');
 const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'luminor-abas-'));
 const UNIQUE=/UNIQUE|duplicate key/;
 
@@ -14,14 +14,14 @@ async function shop(){const box=await tempStore('luminor-abas-');const s=box.s;a
 // Real HTTP server on a random port, with the demo scale, used the way the screen uses it.
 async function boot(){
   const box=await tempStore('luminor-abas-');const db=box.s;const scale=new ScaleDriver();
-  const server=createServer({db,scale});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  await db.openShift('0',(await db.saveEmployee({name:'Carla'})).id);const pos=await posAuth(db);const {cookie}=await pos.signIn('Carla');
+  const server=createServer({db,scale,auth:pos.auth,simulator:'open'});await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const base=`http://127.0.0.1:${server.address().port}`;
-  const get=async p=>(await fetch(base+p)).json();const {token}=await get('/api/session');
-  const post=async(p,body={})=>{const r=await fetch(base+p,{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':token},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
-  await db.openShift('0',(await db.saveEmployee({name:'Carla'})).id);
+  const get=async p=>(await fetch(base+p,{headers:{Cookie:cookie}})).json();const {token}=await get('/api/session');
+  const post=async(p,body={})=>{const r=await fetch(base+p,{method:'POST',headers:{'Content-Type':'application/json','X-Luminor-Token':token,Cookie:cookie},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
   return {db,scale,post,state:()=>get('/api/state'),
     async weigh(grams){await post('/api/scale/demo-weight',{grams});await post('/api/scale/demo-weight',{grams:0});},
-    async close(){scale.disconnect();server.closeAllConnections();await new Promise(r=>server.close(r));await box.clean();}};
+    async close(){scale.disconnect();server.closeAllConnections();await new Promise(r=>server.close(r));await pos.close();await box.clean();}};
 }
 const frame=payload=>Buffer.from([0x02,...Buffer.from(payload,'ascii'),0x03]);
 // Fake Toledo port answering every ENQ with the current reading. FakePort.initial is what a new connection reads first.
@@ -150,7 +150,8 @@ test('T07 one weighing cycle becomes one item, even if offered again',async()=>{
 
 test('T07 a reconnected scale does not capture the same cup again',async()=>{
   const box=await tempStore('luminor-abas-');const db=box.s;await db.openShift('0',(await db.saveEmployee({name:'Ana'})).id);
-  const scale=new ScaleDriver({SerialPort:FakePort,pollMs:10});createServer({db,scale});
+  const pos=await posAuth(db);await pos.signIn('Ana');
+  const scale=new ScaleDriver({SerialPort:FakePort,pollMs:10});createServer({db,scale,auth:pos.auth});
   try{
     FakePort.initial='00000';await scale.connect('COM9',2400);await until(()=>scale.snapshot().status==='stable');
     const sale=await db.activeSaleId();const items=async()=>(await db.getDraftSale(sale)).items;
@@ -160,7 +161,7 @@ test('T07 a reconnected scale does not capture the same cup again',async()=>{
     const polls=port.enq;await until(()=>port.enq>=polls+15);assert.equal((await items()).length,1);
     port.reading='00000';await until(()=>scale.snapshot().armed);port.reading='00420';
     await until(async()=>(await items()).length===2);assert.equal((await items())[1].grams,420);assert.notEqual((await items())[1].captureId,first);
-  }finally{FakePort.initial='00000';scale.disconnect();await box.clean();}
+  }finally{FakePort.initial='00000';scale.disconnect();await pos.close();await box.clean();}
 });
 
 test('T08 an item moves to another sale only by a recorded transfer',async()=>{
