@@ -7,14 +7,14 @@ const {readMoney}=require('./protocol');
 const readCents=v=>{try{return readMoney(v);}catch(_){return null;}};
 const HOST='127.0.0.1';
 const WEB=path.resolve(__dirname,'../public');
-const STATIC=['/app.js','/product-filter.js','/style.css','/admin.js','/admin.css','/logo.svg','/fonts/work-sans.woff2'];
+const STATIC=['/app.js','/product-filter.js','/style.css','/admin.js','/admin.css','/logo.svg','/favicon.ico','/fonts/work-sans.woff2'];
 const SECURITY={'X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY'};
 function send(res,status,payload,headers={}){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...SECURITY,...headers});res.end(JSON.stringify(payload));}
 function fail(res,status,error,extra={}){send(res,status,{error,...extra});}
 async function readBody(req){let text='';for await(const chunk of req){text+=chunk;if(text.length>20000)throw Error('Requisição muito grande');}try{return JSON.parse(text||'{}');}catch(_){throw Error('JSON inválido');}}
 function serve(res,filename){
   const full=path.join(WEB,filename);
-  const mime=filename.endsWith('.css')?'text/css; charset=utf-8':filename.endsWith('.js')?'application/javascript; charset=utf-8':filename.endsWith('.svg')?'image/svg+xml':filename.endsWith('.woff2')?'font/woff2':'text/html; charset=utf-8';
+  const mime=filename.endsWith('.css')?'text/css; charset=utf-8':filename.endsWith('.js')?'application/javascript; charset=utf-8':filename.endsWith('.svg')?'image/svg+xml':filename.endsWith('.ico')?'image/x-icon':filename.endsWith('.woff2')?'font/woff2':'text/html; charset=utf-8';
   res.writeHead(200,{'Content-Type':mime,'Cache-Control':'no-store',...SECURITY,'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'"});
   fs.createReadStream(full).pipe(res);
 }

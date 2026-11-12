@@ -104,7 +104,7 @@ const LOADERS={
  backup:async()=>{A.backup=await apiGet('backup');},
  seguranca:async()=>{[A.status,A.access]=await Promise.all([status(),apiGet('access-log')]);},
  manutencao:async()=>{A.diag=await apiGet('diagnostics');},preferencias:async()=>{[A.diag,A.backup]=await Promise.all([apiGet('diagnostics'),apiGet('backup')]);},
- sobre:async()=>{A.diag=await apiGet('diagnostics');},
+ sobre:async()=>{A.diag=await apiGet('diagnostics');},demo:async()=>{},
  usuarios:async()=>{[A.ops,A.opsAudit]=await Promise.all([apiGet('operators'),apiGet('operators/audit')]);}
 };
 let loading=0;
