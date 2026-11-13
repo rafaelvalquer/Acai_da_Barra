@@ -1,5 +1,5 @@
 'use strict';
-// npm run backup [-- --tipo manual|atualizacao]
+// npm run backup, or node src/cli/backup.js --tipo manual|atualizacao
 // Makes a backup from the command line, with or without the PDV open (the installer runs it before an update).
 const {loadConfig,prepareHome}=require('../config');
 const {BackupService}=require('../backup/BackupService');const {SecretVault}=require('../config/SecretVault');

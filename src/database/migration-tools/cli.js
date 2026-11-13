@@ -2,7 +2,7 @@
 // Moves the store's data from the local SQLite database to PostgreSQL (Supabase).
 //
 //   npm run migrar:postgres                      rehearsal: copies into a temporary PostgreSQL and reconciles
-//   npm run migrar:postgres -- --confirmar       copies into DATABASE_URL (must be empty) and reconciles
+//   node src/database/migration-tools/cli.js --confirmar   copies into DATABASE_URL (must be empty) and reconciles
 //   options: --origem <arquivo.sqlite>  --destino <DATABASE_URL>  --ca <certificado.pem>  --exportar <arquivo.json>
 //
 // The original SQLite file is only read (a copy is opened). Nothing changes in the PDV's configuration: the PDV keeps
@@ -38,7 +38,7 @@ async function main(){
   const file=path.join(config.paths.logs,`migracao-${stamp(new Date())}.json`);fs.writeFileSync(file,JSON.stringify(report,null,2));
   for(const t of report.tables)console.log(`${t.ok?'OK  ':'ERRO'} ${t.table.padEnd(18)} origem ${String(t.source).padStart(6)}  destino ${String(t.target).padStart(6)}${t.difference?'  '+JSON.stringify(t.difference):''}`);
   for(const t of report.totals.filter(t=>!t.ok))console.log(`ERRO total ${t.item}: origem ${t.source}, destino ${t.target}`);
-  console.log(report.ok?`\nConciliação OK${rehearsal?' (ensaio). Para copiar de verdade: npm run migrar:postgres -- --confirmar':'. Para manter a nuvem em dia sozinha, ative a cópia em Configurações › Administração do sistema › Banco de dados.'}`:'\nA conciliação encontrou diferenças. Não troque o banco do PDV.');
+  console.log(report.ok?`\nConciliação OK${rehearsal?' (ensaio). Para copiar de verdade: node src/database/migration-tools/cli.js --confirmar':'. Para manter a nuvem em dia sozinha, ative a cópia em Configurações › Administração do sistema › Banco de dados.'}`:'\nA conciliação encontrou diferenças. Não troque o banco do PDV.');
   console.log(`Relatório: ${file}`);
   process.exit(report.ok?0:1);
 }

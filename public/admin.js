@@ -171,7 +171,7 @@ VIEWS.recover=()=>`<div class="card adm-narrow adm-auth">
    <p class="adm-error hidden" data-error role="alert"></p>
    <button type="submit" class="primary big">${icon('key')}Continuar</button>
   </form>
-  ${notice('Sem o código: no computador da loja, um administrador do Windows pode gerar uma senha temporária com <code>npm run admin:redefinir -- --confirmar</code> na pasta do programa.','', 'info')}
+  ${notice('Sem o código: no computador da loja, um administrador do Windows pode gerar uma senha temporária com <code>node src/cli/admin-reset.js --confirmar</code> na pasta do programa (PowerShell aberto como administrador).','', 'info')}
   <div class="adm-auth-links"><button type="button" class="link-btn" data-act="go" data-to="login">${icon('chevron-left')}Voltar ao acesso</button></div>
  </div>`;
 VIEWS.password=()=>{

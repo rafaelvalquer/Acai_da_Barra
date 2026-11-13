@@ -1,5 +1,5 @@
 'use strict';
-// npm run admin:redefinir — emergency access when the administrator password and the recovery code were both lost.
+// node src/cli/admin-reset.js --confirmar (npm run admin:redefinir without the flag) — emergency access when the administrator password and the recovery code were both lost.
 // Must be run on the store's computer by a Windows administrator (only they can open the config folder and its
 // vault). Prints a temporary password that has to be changed at the next sign-in; the initial "admin" password is
 // never brought back.
@@ -8,7 +8,7 @@ const {AdminStore}=require('../auth/AdminStore');const {AdminSessionService}=req
 const {AdminBootstrap}=require('../auth/AdminBootstrap');const {AdminAuthService}=require('../auth/AdminAuthService');
 const fs=require('node:fs'),path=require('node:path');
 async function main(){
-  if(!process.argv.includes('--confirmar')){console.log('Isto cria uma senha temporária para o administrador do Luminor PDV.\nPara continuar: npm run admin:redefinir -- --confirmar');return;}
+  if(!process.argv.includes('--confirmar')){console.log('Isto cria uma senha temporária para o administrador do Luminor PDV.\nPara continuar, rode na pasta do programa: node src/cli/admin-reset.js --confirmar');return;}
   const config=loadConfig();prepareHome(config);
   const vault=new SecretVault(config.vaultFile,{mode:config.vault});await vault.load();
   const store=await AdminStore.open(config.adminDbPath);

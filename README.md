@@ -84,8 +84,9 @@ O servidor escuta só em `127.0.0.1`: nada fica exposto na rede e não é precis
 
 - **Atualizar:** descompacte a versão nova e rode o `instalador\instalar.bat` dela. O instalador prepara a nova versão, para o PDV de forma limpa (o banco é fechado), faz um **backup "antes de atualizar"** (`backups\seguranca`), troca o programa e inicia de novo. A versão anterior fica em `C:\Program Files\LuminorPDV.anterior`. Se o backup falhar, nada é trocado e a versão atual volta a rodar. Atualizar nunca reativa a senha `admin`.
 - **Reparar:** rodar o `instalar.bat` da própria pasta instalada recria a tarefa, as permissões e os atalhos sem trocar o programa.
-- **Remover:** `instalador\desinstalar.bat` remove a tarefa, os atalhos e a pasta do programa. **Os dados ficam** em `C:\ProgramData\LuminorPDV`; uma nova instalação os encontra.
-- Backup avulso pelo terminal (como administrador): `npm run backup` (ou `npm run backup -- --tipo atualizacao`).
+- **Remover:** `instalador\desinstalar.bat` remove a tarefa, os atalhos e a pasta do programa. **Os dados ficam** em `C:\ProgramData\LuminorPDV`; uma nova instalação os encontra, com a mesma senha de administrador (`admin`/`admin` não volta ao reinstalar).
+- Backup avulso pelo terminal (como administrador, na pasta do programa): `npm run backup` (ou `node src/cli/backup.js --tipo atualizacao`).
+- Comandos com opções chamam o `node` direto: no PowerShell do Windows, `npm run <script> -- --opção` perde a opção (o PowerShell descarta o `--` antes de o npm recebê-lo).
 
 **Atualizar para a versão com PIN por funcionário e fechamento cego** (banco comercial versão 6, `config\admin.sqlite` versão 2):
 
@@ -146,7 +147,7 @@ Fica em **Configurações** (no celular, "Ajustes"), no cartão **Administraçã
 - **Painel:** Banco de dados, Backup e restauração, Segurança, **Usuários e permissões**, Manutenção, Configurações e Sobre. Alertas (backup que falhou ou sem backup há 48 horas, cópia para o pendrive que falhou, chave dos backups não anotada, código de recuperação não gerado, cópia na nuvem sem conexão há mais de 1 hora, com erro ou assumida por outro computador) aparecem no topo do painel e como um ponto no botão Configurações.
 - **Segurança:** trocar usuário e senha (confirmando a senha atual), sair, ver os acessos recentes e gerar o **código de recuperação de emergência** (16 caracteres, vale uma vez). Senhas guardadas com Argon2id; 5 tentativas erradas bloqueiam por 5 minutos (o bloqueio continua depois de reiniciar); a sessão termina com 15 minutos sem uso ou 8 horas depois de entrar.
 - **Ações críticas** (preparar a nuvem, ativar, desativar ou reenviar a cópia na nuvem, restaurar backup, ver a chave dos backups, gerar código) pedem a senha de novo.
-- **Esqueci a senha:** "Esqueci a senha" na tela de entrada, com o código de recuperação. Sem o código, um administrador do Windows roda na pasta do programa `npm run admin:redefinir -- --confirmar`, que mostra uma senha temporária (a troca é exigida no próximo acesso).
+- **Esqueci a senha:** "Esqueci a senha" na tela de entrada, com o código de recuperação. Sem o código, um administrador do Windows abre o PowerShell como administrador e roda na pasta do programa (`C:\Program Files\LuminorPDV`) `node src/cli/admin-reset.js --confirmar`, que mostra uma senha temporária (a troca é exigida no próximo acesso).
 - **Manutenção:** versão, serviço (Node, memória, se está sob o inicializador), balança, banco ativo, último backup, espaço em disco, registros recentes e **exportar diagnóstico** (arquivo JSON sem senhas, chaves ou vendas, para o suporte).
 - As contas, sessões e a auditoria da administração ficam em `config\admin.sqlite`, **separado do banco das vendas**: a administração funciona com ou sem internet, e restaurar um backup nunca troca o usuário ou a senha de administrador.
 
@@ -233,7 +234,7 @@ O caixa grava **sempre no banco deste computador** (SQLite), que não depende de
 
 **Instalações que usavam a nuvem como banco principal** (versões anteriores, ou `PDV_DATABASE_PROVIDER=postgres` no arquivo de configuração) passam sozinhas para este modo ao iniciar a versão nova: o PDV faz um backup de segurança, copia os dados da nuvem para um banco novo neste computador (conferido tabela por tabela), guarda o banco local antigo como `data\luminor-pdv.antes-da-volta-<data>.sqlite` e ativa a cópia na nuvem. Tudo fica na auditoria. Se a nuvem não responder ao iniciar, o caixa fica pausado como antes e a passagem acontece assim que ela voltar (nova tentativa a cada 30 s); enquanto isso, a página Banco de dados mostra o cartão **Passar para o modo offline** (o botão faz a passagem na hora, quando a nuvem responde) e, para emergências com a nuvem fora do ar, **Usar o banco deste computador como estava** (as vendas feitas na nuvem depois da migração não estão nele).
 
-Pelo terminal também há `npm run migrar:postgres` (ensaio num PostgreSQL temporário) e `npm run migrar:postgres -- --confirmar`, que copia o banco local para um Supabase vazio; depois é só ativar a cópia na tela (com a confirmação de substituir, porque a nuvem já tem dados).
+Pelo terminal também há `npm run migrar:postgres` (ensaio num PostgreSQL temporário) e `node src/database/migration-tools/cli.js --confirmar`, que copia o banco local para um Supabase vazio; depois é só ativar a cópia na tela (com a confirmação de substituir, porque a nuvem já tem dados).
 
 ## 7. Como habilitar a balança física
 
