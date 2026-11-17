@@ -89,3 +89,28 @@ test('serial settings are validated before opening the port',async()=>{
  await assert.rejects(scale.connect('COM9; rm',2400),/Porta serial/);
  assert.deepEqual((await scale.ports()).map(p=>p.path),['COM9']);
 });
+
+test('the residue of the empty plate (0,004 kg) counts as zero: never sold, and it frees the next weighing',async()=>{
+ const r=await rig();try{
+  r.port.reading='00004';
+  const polls=r.port.enq;await until(()=>r.port.enq>=polls+15);
+  assert.equal((await cart(r)).length,0);assert.equal(r.scale.snapshot().grams,0);assert.equal(r.scale.idle(),true);
+  r.port.reading='00840';await until(async()=>(await cart(r)).length===1);
+  assert.equal(r.scale.snapshot().armed,false);
+  // The plate is emptied but the scale goes back to 0,004 kg, not to zero.
+  r.port.reading='00004';await until(()=>r.scale.snapshot().armed);
+  r.port.reading='00500';await until(async()=>(await cart(r)).length===2);
+  assert.equal((await cart(r))[1].grams,500);
+ }finally{await r.clean();}
+});
+
+test('with a tare on the scale the empty plate reads negative: it frees the next weighing and the change of sale',async()=>{
+ const r=await rig();try{
+  r.port.reading='00126';await until(async()=>(await cart(r)).length===1);
+  assert.equal(r.scale.snapshot().armed,false);assert.equal(r.scale.idle(),false);
+  r.port.reading='NNNNN';await until(()=>r.scale.snapshot().armed);
+  assert.equal(r.scale.idle(),true);assert.equal((await cart(r)).length,1);
+  r.port.reading='00300';await until(async()=>(await cart(r)).length===2);
+  assert.equal((await cart(r))[1].grams,300);
+ }finally{await r.clean();}
+});

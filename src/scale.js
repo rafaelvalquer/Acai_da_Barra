@@ -6,6 +6,9 @@ class ScaleDriver {
   // options.SerialPort and options.pollMs exist so tests can drive a fake serial port quickly.
   constructor(options={}) {
     this.SerialPort=options.SerialPort||null;this.pollMs=options.pollMs||500;
+    // A stable reading up to emptyGrams is the empty plate (the residue the scale shows with nothing on it, 0,004 kg
+    // on the store's unit): it counts as zero, so it is never sold and it frees the next weighing.
+    this.emptyGrams=options.emptyGrams??10;
     this.port=null;this.timer=null;this.mode='offline';this.error='';
     this.state={status:'offline',grams:null,ready:false,armed:true,updatedAt:null,mode:'offline',lastError:''};
     // cycle names the current weighing (from one empty plate to the next): a cycle is captured at most once.
@@ -24,18 +27,24 @@ class ScaleDriver {
     this.armed=false; return s.grams;
   }
   // Nothing on the plate (stable zero) or no reading at all: the destination of the next weighing may change.
-  idle(){const s=this.snapshot();return this.mode==='offline'||['offline','waiting','invalid'].includes(s.status)||(s.status==='stable'&&s.grams===0);}
+  idle(){const s=this.snapshot();return this.mode==='offline'||['offline','waiting','invalid','negative'].includes(s.status)||(s.status==='stable'&&s.grams===0);}
   sample(frame) {
+    if(frame.status==='stable'&&frame.grams<=this.emptyGrams)frame={...frame,grams:0};
     this.lastRead=Date.now();this.state.updatedAt=new Date().toISOString();
     this.state.status=frame.status;this.state.grams=frame.grams;
     if(frame.status==='stable') {
       this.consistent=(this.lastGrams===frame.grams)?this.consistent+1:1;
       this.lastGrams=frame.grams;
-      if(frame.grams===0){this.zeroCount++;if(this.zeroCount>=2&&!this.armed){this.armed=true;this.cycle=randomUUID();}}
-      else this.zeroCount=0;
-    } else {this.consistent=0;this.zeroCount=0;this.lastGrams=null;}
+      if(frame.grams===0)this.emptySeen();else this.zeroCount=0;
+    } else {
+      this.consistent=0;this.lastGrams=null;
+      // Below zero is the empty plate too: with a tare set on the scale (the cup), taking the cup away reads negative.
+      if(frame.status==='negative')this.emptySeen();else this.zeroCount=0;
+    }
     if(this.snapshot().ready) this.onReady();
   }
+  // Two readings in a row of the empty plate free the next weighing, with a new cycle id.
+  emptySeen(){this.zeroCount++;if(this.zeroCount>=2&&!this.armed){this.armed=true;this.cycle=randomUUID();}}
   disconnect(){
     if(this.timer) clearInterval(this.timer);this.timer=null;
     const p=this.port;this.port=null;
