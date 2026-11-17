@@ -582,3 +582,11 @@ body.signed-out{overflow:hidden}
 /* Setup (first access): only Configurações until the administrator's password is set. */
 body.setup #connection,body.setup #cash-badge,body.setup #cloud-badge{display:none}
 @media(max-width:520px){.login-card{padding:22px 18px 18px;border-radius:22px}.login-people{max-height:none}.op-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* Conferência de fechamento */
+.closing-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e5e7eb)}
+.closing-row .grow{flex:1 1 220px;min-width:0}
+.closing-row .row-actions{display:flex;flex-wrap:wrap;gap:6px}
+.closing-row .row-actions button{padding:6px 10px;font-size:.85rem}
+#print-area{display:none}
+@media print{body>*:not(#print-area){display:none!important}#print-area{display:block!important;white-space:pre;font-family:"Courier New",monospace;font-size:11px;line-height:1.25;width:72mm;margin:0}}
