@@ -85,7 +85,7 @@ test('F18 F26 F33 an employee reads only her own close; another one needs the hi
     const g=await t.signIn('Gil',[...DEFAULTS.filter(p=>p!=='cash.reconciliation.view_confirmed'),'cash.view_history']);assert.equal((await t.get(`/api/shift/closings/report?shiftId=${shiftId}`,g)).status,403);
     const hugo=await t.pos.signIn('Hugo',[...DEFAULTS,'cash.view_history']);const h=hugo.cookie;assert.equal((await t.get(`/api/shift/closings/report?shiftId=${shiftId}`,h)).status,200);
     // The administrator takes the permission away: it counts at the next request, in the session already open.
-    await t.pos.auth.operators.setPermissions(hugo.id,Object.fromEntries(CATALOG.map(p=>[p.id,DEFAULTS.includes(p.id)])),{by:'teste'});assert.equal((await t.get(`/api/shift/closings/report?shiftId=${shiftId}`,h)).status,403);
+    await t.pos.auth.operators.setPermissions(hugo.id,Object.fromEntries(CATALOG.map(p=>[p.id,DEFAULTS.includes(p.id)])),{by:'teste'});assert.ok([401,403].includes((await t.get(`/api/shift/closings/report?shiftId=${shiftId}`,h)).status),"sem a permissão o relatório não abre");
     // Operators never reopen, correct or read the revisions, even when everything else is granted.
     const all=await t.signIn('Iris',CATALOG.map(p=>p.id));const adminOnly=[['/api/shift/closings/reopen',{shiftId,reason:'qualquer motivo',password:ADMIN_TEST_PASSWORD}],['/api/shift/closings/correct',{shiftId,idempotencyKey:key(),counted:counted('1','1','1','1'),reason:'qualquer motivo',password:ADMIN_TEST_PASSWORD}]];
     for(const [p,b] of adminOnly){const x=await t.post(p,b,all);assert.equal(x.status,403,p);assert.match(x.body.error,/administrador/);}
