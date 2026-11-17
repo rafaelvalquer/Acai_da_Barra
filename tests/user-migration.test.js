@@ -22,7 +22,7 @@ const openSales=async s=>{const st=await s.readState();return {list:st.openSales
 
 test('v5 → v6 keeps the open shift, the open sales and their items, and gives nobody a permission or a PIN',async()=>{
   const box=await tempStore('luminor-v6-');try{
-    let s=box.s;assert.equal(SCHEMA_VERSION,6);
+    let s=box.s;assert.equal(SCHEMA_VERSION,7);
     const ana=(await s.saveEmployee({name:'Ana'})).id;await s.saveEmployee({name:'Bruno'});await s.openShift('100,00',ana);
     const a=await s.activeSaleId();await s.addManualWeight(a,'0,500');
     const water=(await s.product({name:'Água',price:'5,00',stock:10})).id;const b=(await s.createDraftSale()).id;await s.addUnit(b,water,2);
@@ -31,7 +31,7 @@ test('v5 → v6 keeps the open shift, the open sales and their items, and gives 
     await backToV5(s);assert.equal(await s.schemaVersion(),5);
     // The update: the program starts on the old database.
     s=await box.reopen();
-    assert.equal(await s.schemaVersion(),6);assert.equal(await count(s,'employee_permissions'),0);
+    assert.equal(await s.schemaVersion(),SCHEMA_VERSION);assert.equal(await count(s,'employee_permissions'),0);
     assert.deepEqual({shift:(await s.shift()).id,sales:await openSales(s),active:await s.activeSaleId(),employees:(await s.listEmployees()).map(e=>e.name)},before);
     // Nobody gained anything: no permission, nobody on the sign-in screen until the administrator gives a PIN.
     for(const e of (await s.accessIndex()).byId.values())assert.deepEqual(e.allowed,[]);
@@ -39,7 +39,7 @@ test('v5 → v6 keeps the open shift, the open sales and their items, and gives 
     // The sales go on where they were.
     await s.addManualWeight(a,'0,100');await s.addUnit(b,water,1);assert.equal((await s.listProducts())[0].available,7);
     // Starting again changes nothing.
-    s=await box.reopen();assert.equal(await s.schemaVersion(),6);assert.equal((await openSales(s)).list.length,2);
+    s=await box.reopen();assert.equal(await s.schemaVersion(),SCHEMA_VERSION);assert.equal((await openSales(s)).list.length,2);
   }finally{await box.clean();}
 });
 

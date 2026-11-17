@@ -7,6 +7,8 @@ class PermissionsRepository {
   forEmployee(employeeId){return this.q.all('SELECT permission,allowed,updated_at,updated_by FROM employee_permissions WHERE employee_id=? ORDER BY permission',[employeeId]);}
   // Every allowed permission of active employees, for the authorization index.
   allowed(){return this.q.all('SELECT p.employee_id,p.permission FROM employee_permissions p JOIN employees e ON e.id=p.employee_id WHERE p.allowed=1 AND e.active=1');}
+  // Which of these permissions have a row (allowed or refused) for each employee.
+  decidedAmong(permissions){return this.q.all(`SELECT employee_id,permission FROM employee_permissions WHERE permission IN (${permissions.map(()=>'?').join(',')})`,permissions);}
   // The last change of each employee's permissions (what the Admin screen shows).
   lastChanges(){return this.q.all('SELECT employee_id,MAX(updated_at) AS at FROM employee_permissions GROUP BY employee_id');}
   // Only a value that changes is written, so updated_at/updated_by tell when and by whom it last changed.

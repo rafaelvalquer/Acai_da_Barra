@@ -25,7 +25,16 @@ const STEPS=[
       created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
     CREATE TABLE pos_sessions(token_hash TEXT PRIMARY KEY,kind TEXT NOT NULL CHECK (kind IN ('operador','admin')),account_id INTEGER NOT NULL,admin_token_hash TEXT,
       terminal TEXT NOT NULL,created_at TEXT NOT NULL,last_seen_at TEXT NOT NULL,expires_at TEXT NOT NULL,locked_at TEXT);
-    CREATE INDEX pos_sessions_account ON pos_sessions(kind,account_id);`);}
+    CREATE INDEX pos_sessions_account ON pos_sessions(kind,account_id);`);},
+  // 3: the closing report print queue of this computer (src/printing/). It lives here, not in the commercial database:
+  // a printer belongs to one computer, so its jobs are not copied to the cloud or restored from a backup of another one.
+  // dedupe_key: at most one "original" print per close, whatever is clicked twice.
+  async q=>{await q.exec(`
+    CREATE TABLE IF NOT EXISTS print_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,kind TEXT NOT NULL CHECK (kind IN ('closing','reprint','test')),
+      status TEXT NOT NULL CHECK (status IN ('PENDING','SPOOLING','SUBMITTED','FAILED','CANCELED')),dedupe_key TEXT UNIQUE,
+      reconciliation_uuid TEXT,shift_id INTEGER,revision INTEGER,printer TEXT,transport TEXT,spool_job_id INTEGER,copies INTEGER NOT NULL DEFAULT 1,
+      requested_at TEXT NOT NULL,requested_by TEXT,submitted_at TEXT,attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT,ambiguous INTEGER NOT NULL DEFAULT 0,auto INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS print_jobs_rec ON print_jobs(reconciliation_uuid);CREATE INDEX IF NOT EXISTS print_jobs_status ON print_jobs(status);`);}
 ];
 class AdminStore {
   constructor(adapter){this.db=adapter;}

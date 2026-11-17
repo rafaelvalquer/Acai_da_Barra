@@ -6,15 +6,16 @@ const {Mutex}=require('./database/Mutex');const {repositories}=require('./databa
 const {ConfigService}=require('./services/ConfigService');const {EmployeeService}=require('./services/EmployeeService');
 const {CashService}=require('./services/CashService');const {StockService}=require('./services/StockService');
 const {SaleService}=require('./services/SaleService');const {ReportService}=require('./services/ReportService');
-const {PermissionService}=require('./services/PermissionService');
+const {PermissionService}=require('./services/PermissionService');const {ReconciliationService}=require('./services/ReconciliationService');
 const OPERATIONS={
   config:['getConfig','updateConfig'],
   employees:['listEmployees','employee','saveEmployee','removeEmployee','operatorId','operator','setOperator','requireOperator'],
-  cash:['shift','openShift','moveCash','shiftTotals','cashSummary','closeShift','blindWithdrawalLimit','setBlindWithdrawalLimit'],
+  cash:['shift','openShift','moveCash','shiftTotals','cashSummary','closeShift','blindWithdrawalLimit','setBlindWithdrawalLimit','strictBlind','setStrictBlind'],
   stock:['listProducts','product','favoriteProduct','deleteProduct'],
   sales:['draftRow','activeSaleId','listDraftSales','getDraftSale','createDraftSale','selectDraftSale','renameDraftSale','addUnit','setQuantity','addWeighed','captureWeighing',
     'addManualWeight','addManualValue','removeDraftSaleItem','transferDraftSaleItem','draftEvents','discardDraftSale','checkoutDraftSale','cancelSale','correctSale','saleDetail'],
   reports:['salesHistory','report'],
+  reconciliation:['beginClose','validateCountedAmounts','confirmClose','getConfirmedReport','listClosings','requestReopen','confirmCorrection','getRevisions'],
   permissions:['employeePermissions','savePermissions','permissionOverview']
 };
 async function migrate(adapter){
@@ -25,7 +26,7 @@ class PdvStore {
   constructor(adapter){
     this.lock=new Mutex();const ctx=this.ctx={};
     ctx.config=new ConfigService(ctx);ctx.employees=new EmployeeService(ctx);ctx.cash=new CashService(ctx);ctx.stock=new StockService(ctx);
-    ctx.sales=new SaleService(ctx);ctx.reports=new ReportService(ctx);ctx.permissions=new PermissionService(ctx);ctx.actor=null;
+    ctx.sales=new SaleService(ctx);ctx.reports=new ReportService(ctx);ctx.permissions=new PermissionService(ctx);ctx.reconciliation=new ReconciliationService(ctx);ctx.actor=null;
     this.attach(adapter);
   }
   attach(adapter){
@@ -60,9 +61,9 @@ class PdvStore {
   async readState(){
     const {sales,config,cash,stock,employees}=this.ctx;
     const activeSaleId=await sales.activeSaleId();
-    const [active,cfg,cashSummary,openSales,products,team]=await Promise.all([activeSaleId?sales.getDraftSale(activeSaleId):null,
-      config.getConfig(),cash.cashSummary(),sales.listDraftSales(),stock.listProducts(),employees.listEmployees()]);
-    return {config:cfg,cash:cashSummary,openSales,activeSaleId,
+    const [active,cfg,cashSummary,openSales,products,team,strictBlind]=await Promise.all([activeSaleId?sales.getDraftSale(activeSaleId):null,
+      config.getConfig(),cash.cashSummary(),sales.listDraftSales(),stock.listProducts(),employees.listEmployees(),cash.strictBlind()]);
+    return {config:cfg,cash:cashSummary,strictBlind,openSales,activeSaleId,
       activeSale:active&&{id:active.id,label:active.label,revision:active.revision,created_at:active.created_at,updated_at:active.updated_at,operator_id:active.operator_id},
       cart:active?active.items:[],cartTotalCents:active?active.totalCents:0,products,employees:team};
   }

@@ -32,6 +32,13 @@ const ACTIONS=[
   {id:'cash.view_expected',group:'Caixa',label:'Ver o saldo esperado e a diferença exata do fechamento',default:false,critical:true,
     note:'Sem esta permissão o fechamento é cego: o funcionário vê só Conferido, Falta ou Sobra.'},
   {id:'cash.view_history',group:'Caixa',label:'Ver as movimentações do turno e o histórico de fechamentos',default:false,critical:true},
+  {id:'cash.reconciliation.confirm',group:'Caixa',label:'Confirmar a conferência de fechamento (valores contados por forma de pagamento)',default:true,note:'Junto com "Fechar o caixa".'},
+  {id:'cash.reconciliation.view_confirmed',group:'Caixa',label:'Ver o relatório do fechamento que a própria pessoa confirmou',default:true,note:'Só depois de confirmar. Ver fechamentos de outras pessoas exige "Ver as movimentações do turno e o histórico de fechamentos".'},
+  {id:'cash.reconciliation.print',group:'Caixa',label:'Imprimir o relatório do fechamento confirmado',default:true},
+  {id:'cash.reconciliation.reprint',group:'Caixa',label:'Reimprimir o relatório do fechamento (2ª via)',default:true},
+  {id:'cash.reconciliation.reopen',group:'Caixa',label:'Reabrir uma conferência confirmada para correção',default:false,critical:true,note:'Reservado ao administrador na prática: operadoras não corrigem nem reabrem.'},
+  {id:'cash.reconciliation.correct',group:'Caixa',label:'Confirmar a correção de uma conferência',default:false,critical:true},
+  {id:'cash.reconciliation.view_revisions',group:'Caixa',label:'Ver as revisões e a auditoria das conferências',default:false,critical:true},
   {id:'products.view',group:'Gestão',label:'Consultar produtos e estoque',default:false},
   {id:'products.manage',group:'Gestão',label:'Cadastrar produtos e alterar preços e estoque',default:false,critical:true},
   {id:'reports.view',group:'Gestão',label:'Ver relatórios e o histórico completo de vendas',default:false,critical:true},
@@ -45,6 +52,10 @@ const CATALOG=[...SCREENS.map(s=>({...s,group:'Telas',kind:'screen'})),...ACTION
 const IDS=new Set(CATALOG.map(p=>p.id));
 const CRITICAL=new Set(CATALOG.filter(p=>p.critical).map(p=>p.id));
 const DEFAULTS=CATALOG.filter(p=>p.default).map(p=>p.id);
+// Employees who could close the shift before these permissions existed keep what closing meant then: confirming the
+// count and seeing and printing their own close. Only while nothing was decided for them (no stored row, allowed or
+// refused): the administrator's choice always wins, and the stored permissions (and their seal) are not touched.
+const IMPLIED_BY_CLOSE=['cash.reconciliation.confirm','cash.reconciliation.view_confirmed','cash.reconciliation.print','cash.reconciliation.reprint'];
 const TAB_PERMISSION=Object.fromEntries(SCREENS.map(s=>[s.tab,s.id]));
 const isKnown=id=>IDS.has(id);
 const isAdminOnly=id=>ADMIN_ONLY.includes(id);
@@ -55,4 +66,4 @@ function catalogView(){
 }
 // The operator default profile as an explicit allow/deny for every permission of the catalog.
 function defaultProfile(){return Object.fromEntries(CATALOG.map(p=>[p.id,!!p.default]));}
-module.exports={SCREENS,ACTIONS,CATALOG,ADMIN_ONLY,CRITICAL,DEFAULTS,TAB_PERMISSION,isKnown,isAdminOnly,catalogView,defaultProfile};
+module.exports={IMPLIED_BY_CLOSE,SCREENS,ACTIONS,CATALOG,ADMIN_ONLY,CRITICAL,DEFAULTS,TAB_PERMISSION,isKnown,isAdminOnly,catalogView,defaultProfile};

@@ -17,7 +17,7 @@
 // administrator reviews and saves them again: an update or a restore never widens anyone's access.
 const crypto=require('node:crypto');
 const {hashPassword,verifyPassword}=require('./PasswordService');
-const {CATALOG,CRITICAL,isKnown,defaultProfile}=require('./PermissionCatalog');
+const {CATALOG,CRITICAL,IMPLIED_BY_CLOSE,isKnown,defaultProfile}=require('./PermissionCatalog');
 const {httpError}=require('./AuthorizationService');
 const MAX_FAILS=5,LOCK_MS=5*60*1000,GLOBAL_WINDOW_MS=60*1000,GLOBAL_MAX=30;
 const WRONG='Funcionário ou PIN incorretos.';
@@ -63,7 +63,9 @@ class OperatorAuthService {
   effective(account,employee){
     if(!account||!account.pin_hash||Number(account.active)!==1||!employee||!employee.active)return null;
     if(!account.permissions_digest||account.permissions_digest!==this.digest(employee.uuid,employee.allowed))return null;
-    return new Set(employee.allowed.filter(isKnown));
+    const set=new Set(employee.allowed.filter(isKnown));
+    if(set.has('cash.close'))for(const p of IMPLIED_BY_CLOSE)if(!employee.decided?.has(p))set.add(p);
+    return set;
   }
   // Employees who can sign in now (for the sign-in screen): names only.
   async loginOptions(){

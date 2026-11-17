@@ -50,6 +50,11 @@ class PosAuth {
     if(identity.locked)return {authenticated:false,locked:true,person};
     return {authenticated:true,locked:false,person,isAdmin:identity.kind==='admin',permissions,screens:SCREENS.filter(s=>permissions.includes(s.id)).map(s=>s.tab)};
   }
+  // The administrator's password typed again for a sensitive operation done at the till (reopening a close).
+  async confirmAdminPassword(identity,password){
+    if(!identity||identity.kind!=='admin')throw httpError(403,'Somente o administrador pode fazer isso.',{needsAdmin:true});
+    await this.adminAuth.confirm({userId:identity.adminUserId},password);
+  }
   options(){return this.operators.loginOptions();}
   // Someone else may not take over the till with weight on the scale (that cup belongs to the sale on screen).
   async guardSwitch(key,scaleIdle){

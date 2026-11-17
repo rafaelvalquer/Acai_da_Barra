@@ -56,7 +56,31 @@ const STEPS=[
     await q.exec(`CREATE TABLE IF NOT EXISTS employee_permissions(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,employee_id INTEGER NOT NULL,permission TEXT NOT NULL,
         allowed INTEGER NOT NULL DEFAULT 0 CHECK (allowed IN (0,1)),updated_at TEXT NOT NULL,updated_by TEXT,UNIQUE(employee_id,permission),FOREIGN KEY (employee_id) REFERENCES employees(id));
       CREATE INDEX IF NOT EXISTS employee_permissions_employee ON employee_permissions(employee_id);`);
-  }
+  },
+  // 7: the full count of the shift's close, by payment method (src/services/ReconciliationService.js). Every close is a
+  // revision of the shift's reconciliation: a correction by the administrator adds the next revision and keeps the
+  // earlier ones as they were. Nothing is created here for shifts closed before: they keep the one-value close in
+  // "shifts" and are shown as such.
+  async q=>{await q.exec(`
+  CREATE TABLE IF NOT EXISTS shift_reconciliations(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,shift_id INTEGER NOT NULL REFERENCES shifts(id),revision INTEGER NOT NULL CHECK (revision>=1),
+    status TEXT NOT NULL CHECK (status IN ('OPEN','CONFIRMED','REOPENED')),is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),idempotency_key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,confirmed_at TEXT,confirmed_by_employee_id INTEGER REFERENCES employees(id),confirmed_by_uuid TEXT,confirmed_by_name TEXT,
+    confirmed_by_kind TEXT CHECK (confirmed_by_kind IS NULL OR confirmed_by_kind IN ('operador','admin')),corrected_from_id INTEGER REFERENCES shift_reconciliations(id),
+    reopened_at TEXT,reopened_by TEXT,reopen_reason TEXT,correction_reason TEXT,corrected_by TEXT,
+    opening_cents INTEGER NOT NULL DEFAULT 0 CHECK (opening_cents>=0),cash_sales_cents INTEGER NOT NULL DEFAULT 0 CHECK (cash_sales_cents>=0),
+    supplies_cents INTEGER NOT NULL DEFAULT 0 CHECK (supplies_cents>=0),withdrawals_cents INTEGER NOT NULL DEFAULT 0 CHECK (withdrawals_cents>=0),
+    revenue_cents INTEGER NOT NULL DEFAULT 0 CHECK (revenue_cents>=0),sales_count INTEGER NOT NULL DEFAULT 0 CHECK (sales_count>=0),canceled_count INTEGER NOT NULL DEFAULT 0 CHECK (canceled_count>=0),
+    total_counted_cents INTEGER NOT NULL CHECK (total_counted_cents>=0),total_expected_cents INTEGER NOT NULL,total_difference_cents INTEGER NOT NULL,
+    UNIQUE(shift_id,revision),
+    CHECK (status='OPEN' OR confirmed_at IS NOT NULL),
+    CHECK (revision=1 OR corrected_from_id IS NOT NULL),
+    CHECK (total_difference_cents=total_counted_cents-total_expected_cents));
+  CREATE UNIQUE INDEX IF NOT EXISTS shift_reconciliations_current ON shift_reconciliations(shift_id) WHERE is_current=1;
+  CREATE INDEX IF NOT EXISTS shift_reconciliations_shift ON shift_reconciliations(shift_id);
+  CREATE TABLE IF NOT EXISTS shift_reconciliation_items(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,reconciliation_id INTEGER NOT NULL REFERENCES shift_reconciliations(id),
+    method TEXT NOT NULL CHECK (method IN ('cash','pix','credit','debit')),counted_cents INTEGER NOT NULL CHECK (counted_cents>=0),expected_cents INTEGER NOT NULL CHECK (expected_cents>=0),
+    difference_cents INTEGER NOT NULL,UNIQUE(reconciliation_id,method),CHECK (difference_cents=counted_cents-expected_cents));
+  CREATE INDEX IF NOT EXISTS shift_reconciliation_items_rec ON shift_reconciliation_items(reconciliation_id);`);}
 ];
 // until: stops at that version (tests and old backups rebuilt at the version they were made in).
 // A database already at a version this program does not know (written by a newer PDV) is never opened: the newer

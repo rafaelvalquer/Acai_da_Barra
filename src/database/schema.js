@@ -2,7 +2,7 @@
 // The PDV tables, in an order where every reference points to a table listed before it. Used to copy data between
 // databases (backup, restore, migration to PostgreSQL) and to check that a backup has the expected structure.
 // since: the schema version that created the table (absent: there from the start).
-const SCHEMA_VERSION=6;
+const SCHEMA_VERSION=7;
 const TABLES=[
   {name:'settings',key:'k',columns:['k','v']},
   {name:'employees',key:'id',identity:true,columns:['id','uuid','name','active','created_at']},
@@ -14,6 +14,8 @@ const TABLES=[
   {name:'sale_items',key:'id',identity:true,columns:['id','sale_id','product_id','kind','label','grams','quantity','unit_cents','total_cents','manual']},
   {name:'draft_sales',key:'id',columns:['id','shift_id','label','status','operator_id','created_at','updated_at','completed_at','revision','sale_id','seq']},
   {name:'draft_sale_items',key:'id',columns:['id','draft_sale_id','product_id','kind','label','grams','quantity','unit_cents','total_cents','manual','scale_capture_id','created_at','seq']},
+  {name:'shift_reconciliations',key:'id',identity:true,since:7,columns:['id','uuid','shift_id','revision','status','is_current','idempotency_key','created_at','confirmed_at','confirmed_by_employee_id','confirmed_by_uuid','confirmed_by_name','confirmed_by_kind','corrected_from_id','reopened_at','reopened_by','reopen_reason','correction_reason','corrected_by','opening_cents','cash_sales_cents','supplies_cents','withdrawals_cents','revenue_cents','sales_count','canceled_count','total_counted_cents','total_expected_cents','total_difference_cents']},
+  {name:'shift_reconciliation_items',key:'id',identity:true,since:7,columns:['id','uuid','reconciliation_id','method','counted_cents','expected_cents','difference_cents']},
   {name:'draft_sale_events',key:'id',identity:true,columns:['id','uuid','draft_sale_id','kind','detail','operator_id','created_at']}
 ];
 const TABLE_NAMES=TABLES.map(t=>t.name);

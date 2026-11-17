@@ -8,11 +8,11 @@ const {HardwareConfig}=require('../hardware');const {AdminSettingsService}=requi
 const {AdminSessionService}=require('../auth/AdminSessionService');const {AdminBootstrap}=require('../auth/AdminBootstrap');const {AdminAuthService}=require('../auth/AdminAuthService');
 const {BackupService}=require('../backup/BackupService');const {DatabaseMigrationService}=require('../database/DatabaseMigrationService');const {CloudSync}=require('../sync/CloudSync');
 const {describeUrl}=require('../database/DatabaseManager');const {AdminApi}=require('./AdminApi');const {mask}=require('../logger');
-const {PosAuth}=require('../auth/PosAuth');
+const {PosAuth}=require('../auth/PosAuth');const {PrinterService}=require('../printing/PrinterService');
 const httpError=(status,message)=>Object.assign(Error(message),{status});
 const STARTED=new Date().toISOString();
 class AdminSystem {
-  constructor({config,databases,adminStore,vault,settings=null,scale,log=console,clock,hooks={},schedule=true,syncTiming={}}){
+  constructor({config,databases,adminStore,vault,settings=null,scale,log=console,clock,hooks={},schedule=true,syncTiming={},printing=null}){
     Object.assign(this,{config,databases,adminStore,vault,scale,log,schedule});this.maintenanceMessage=null;this.sticky=false;this.onRestored=null;
     this.hardware=new HardwareConfig(path.join(config.paths.config,'hardware.json'));
     this.auditFilePath=path.join(config.paths.logs,'auditoria.log');
@@ -26,6 +26,8 @@ class AdminSystem {
     this.migration=new DatabaseMigrationService({config,manager:databases,settings:this.settings,vault,backups:this.backups,sync:this.sync,setMaintenance,audit,log});
     // The old cloud mode moves to the local database as soon as the cloud answers again.
     databases.onReconnect=()=>this.migration.convertLegacy();
+    // The closing report printer of this computer (src/printing/): its settings and print queue are in config/admin.sqlite.
+    this.printing=printing||new PrinterService({store:adminStore,audit,log});
     this.api=new AdminApi(this);
   }
   static async start(opts){const s=new AdminSystem(opts);await s.bootstrap.ensure();await s.startTill();await s.backups.start({schedule:opts.schedule!==false});await s.sync.start();return s;}
@@ -35,6 +37,7 @@ class AdminSystem {
     const self=this;const db={accessIndex:()=>self.db.accessIndex(),savePermissions:(...a)=>self.db.savePermissions(...a),employeePermissions:(...a)=>self.db.employeePermissions(...a)};
     this.pos=new PosAuth({adminStore:this.adminStore,adminAuth:this.auth,db,pepper:await PosAuth.pepper(this.vault),audit:e=>this.audit(e),terminal:os.hostname()});
     this.sessions.onDestroyAll=userId=>this.pos.adminSessionsEnded(userId);
+    await this.printing.start();
     await this.adminStore.pruneAudit().catch(e=>this.log.warn?.(`Registro administrativo antigo não removido: ${e.message}`));
   }
   get db(){return this.databases.store;}
@@ -51,6 +54,13 @@ class AdminSystem {
   async brief(){
     const unavailable=this.db.adapter.unavailable;
     return {version:this.version,maintenance:this.maintenanceMessage,database:{provider:this.db.adapter.dialect,unavailable:!!unavailable},sync:this.sync.brief(),...this.backups.brief()};
+  }
+  // What the printer screen shows: the settings, the Windows queues (what this account sees), the status of the chosen one and the last failures.
+  async printerOverview(){
+    const p=this.printing;const settings=await p.getSettings();const list=await p.listPrinters();
+    return {settings,types:require('../printing/PrinterSettings').TYPES,transports:Object.values(p.transports).map(t=>({id:t.id,label:t.label,supported:t.supported()})),
+      list,status:await p.getPrinterStatus(),failures:(await p.recentFailures(15)).map(j=>({uuid:j.uuid,kind:j.kind,status:j.status,shiftId:j.shift_id,revision:j.revision,printer:j.printer,requestedAt:j.requested_at,requestedBy:j.requested_by,attempts:j.attempts,lastError:j.last_error,ambiguous:j.ambiguous})),
+      account:{user:list.user||null,service:process.env.PDV_LAUNCHER?'tarefa agendada':'processo manual'}};
   }
   afterShiftClose(){this.backups.afterShiftClose();}
   rememberScale(portPath,baudRate){try{this.hardware.rememberScale(portPath,baudRate);}catch(e){this.log.error?.(`Porta da balança não gravada: ${e.message}`);}}
