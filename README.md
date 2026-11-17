@@ -202,6 +202,13 @@ Backups, restauração, banco de dados, senhas e o cadastro de PINs são sempre 
 - **Sangria no caixa cego** (com `cash.move`): cada sangria vai até o limite definido pelo administrador (padrão R$ 200,00). A resposta não depende do dinheiro na gaveta, para que a sangria não sirva para descobrir o saldo.
 - Fechar duas vezes (duplo clique, uma tela antiga) é recusado: um turno fechado não é reaberto nem recebe o fechamento de outro.
 
+### 4.3 Conferência de fechamento por forma de pagamento e impressão (Elgin i9)
+
+- No fechamento o funcionário digita quatro valores contados (dinheiro, Pix, crédito, débito), revisa e confirma. **Nenhum total, valor esperado ou diferença sai do servidor antes da confirmação**; a permissão antiga `cash.view_expected` não abre os totais do turno em andamento (modo rigoroso, ligado por padrão; o administrador desliga em Usuários e permissões).
+- Depois da confirmação, quem fechou vê o relatório daquele fechamento. O administrador pode **reabrir e corrigir** (justificativa + senha); cada correção é uma nova revisão e a anterior continua guardada.
+- Relatório térmico de 80 mm (ESC/POS, PC860) enviado pela fila do Windows, com **2ª via** marcada, fila persistente e fallback pelo navegador. Se a impressão falhar, o fechamento continua confirmado.
+- **A Elgin i9 ainda não foi homologada em equipamento real.** Configuração, atualização do Windows, voltar atrás e checklist físico: [docs/impressao-elgin-i9.md](docs/impressao-elgin-i9.md).
+
 ## 5. Backup e restauração
 
 - **Automático:** todo dia às 02:00 (horário, dias guardados e liga/desliga em Backup e restauração). Se o computador estava desligado nesse horário, o backup é feito ao ligar. Também há um backup a cada **fechamento de caixa** (só se algo mudou) e o botão **Fazer backup agora**.

@@ -68,6 +68,11 @@ function createDemoAuth({db,require}){
       const who=await identityOf(session);if(!who)throw Authz.httpError(401,'Entre com o seu usuário para usar o caixa.',{auth:'login'});
       session.locked=true;return {cookies:[],session:view({...who,locked:true})};
     },
+    // Reopening and correcting a count ask the administrator password again (here the demo password).
+    async confirmAdminPassword(identity,password){
+      if(!identity||identity.kind!=='admin')throw Authz.httpError(403,'Somente o administrador pode fazer isso.');
+      if(password!==DEMO_ADMIN.password)throw Authz.httpError(403,'Senha do administrador incorreta.');
+    },
     async terminalActor(){const who=await identityOf(session);return who&&!who.locked&&Authz.hasPermission(who,'sales.create')?actor(who):null;},
     async employeeDeactivated(){await identityOf(session);},
     audit(e){log.push({at:new Date().toISOString(),...e});if(log.length>200)log.shift();}
