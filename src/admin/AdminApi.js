@@ -7,7 +7,8 @@ const {AdminSessionService}=require('../auth/AdminSessionService');const {descri
 const {catalogView}=require('../auth/PermissionCatalog');
 // What the Usuários e permissões screen lists in its log.
 const OPERATOR_ACTIONS=['login_operador','login_operador_falhou','logout_operador','terminal_bloqueado','troca_pin','permissoes_alteradas','acesso_desativado','acesso_ativado',
-  'limite_sangria_alterado','caixa_aberto','caixa_fechado','venda_cancelada','venda_corrigida','sangria','suprimento','preco_kg_alterado','preco_produto_alterado','acesso_negado','venda_admin'];
+  'limite_sangria_alterado','caixa_aberto','caixa_fechado','venda_cancelada','venda_corrigida','sangria','suprimento','preco_kg_alterado','preco_produto_alterado','acesso_negado','venda_admin',
+  'conferencia_iniciada','conferencia_confirmada','conferencia_reaberta','conferencia_corrigida','fechamento_impresso','fechamento_reimpresso','impressao_falhou','impressao_cancelada','impressora_configurada','impressora_teste','modo_cego_alterado'];
 const httpError=(status,message)=>Object.assign(Error(message),{status});
 function sameOrigin(req){
   const host=req.headers.host;const o=req.headers.origin;if(o)return o===`http://${host}`;
@@ -47,7 +48,9 @@ class AdminApi {
         case 'audit':return send(res,200,await sys.adminStore.recentAudit(80));
         // Users and permissions: the employees of the commercial database, their access at the till and the catalog.
         case 'operators':return send(res,200,{operators:await sys.pos.operators.listOperators(),catalog:catalogView(),
-          settings:{blindWithdrawalLimitCents:await sys.db.blindWithdrawalLimit()}});
+          settings:{blindWithdrawalLimitCents:await sys.db.blindWithdrawalLimit(),strictBlind:await sys.db.strictBlind()}});
+        // The closing report printer of this computer: settings, what Windows shows, the last failures.
+        case 'printers':return send(res,200,await sys.printerOverview());
         case 'permissions/catalog':return send(res,200,catalogView());
         case 'operators/audit':return send(res,200,await sys.adminStore.recentAudit(80,OPERATOR_ACTIONS));
         default:return fail(res,404,'Endereço não encontrado');
@@ -115,9 +118,14 @@ class AdminApi {
       // Blocking needs no password (it only takes access away); giving it back does.
       case 'operators/disable':{const active=b.active===true;const s=active?await this.confirmed(req,b):await this.need(req);result=await sys.pos.operators.setActive(b.employeeId,active,{by:s.username});break;}
       case 'operators/settings':{
-        const s=await this.confirmed(req,b);const cents=await sys.db.setBlindWithdrawalLimit(b.blindWithdrawalLimit);
-        await sys.audit({username:s.username,action:'limite_sangria_alterado',detail:{limiteCentavos:cents}});result={blindWithdrawalLimitCents:cents};break;
+        const s=await this.confirmed(req,b);result={};
+        if(b.blindWithdrawalLimit!==undefined){const cents=await sys.db.setBlindWithdrawalLimit(b.blindWithdrawalLimit);await sys.audit({username:s.username,action:'limite_sangria_alterado',detail:{limiteCentavos:cents}});result.blindWithdrawalLimitCents=cents;}
+        if(b.strictBlind!==undefined){result.strictBlind=await sys.db.setStrictBlind(b.strictBlind);await sys.audit({username:s.username,action:'modo_cego_alterado',detail:{rigoroso:result.strictBlind}});}
+        break;
       }
+      case 'printers/settings':{const s=await this.need(req);result=await sys.printing.saveSettings(b,{by:s.username});break;}
+      case 'printers/test':{const s=await this.need(req);result=await sys.printing.testPrint({by:s.username,cut:b.cut===true});break;}
+      case 'printers/cancel':{const s=await this.need(req);result=await sys.printing.jobs.cancel(String(b.uuid||''));await sys.audit({username:s.username,action:'impressao_cancelada',detail:{trabalho:String(b.uuid||'').slice(0,40)}});break;}
       // The administrator, already in the Admin area, takes the till with the same sign-in.
       case 'pos-session':{const s=await this.need(req);const r=await sys.pos.adminAtTill(s,{scaleIdle:sys.scale.idle()});headers={'Set-Cookie':r.cookies};result=r.session;break;}
       case 'diagnostics/export':{

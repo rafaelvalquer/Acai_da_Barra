@@ -1,5 +1,5 @@
 'use strict';
-const {readMoney}=require('../protocol');const {assert,now,emptyMethods}=require('./util');
+const {readMoney}=require('../protocol');const {assert,now,emptyMethods}=require('./util');const {randomUUID}=require('node:crypto');
 const DEFAULT_BLIND_LIMIT=20000;
 // Counted minus expected, in words: what an operator without access to the balance sees of the close.
 const closeStatus=d=>d<0?'FALTA':d>0?'SOBRA':'CONFERIDO';
@@ -41,23 +41,23 @@ class CashService {
   }
   // Never set (or unreadable): the default. An empty setting is not "zero".
   async blindWithdrawalLimit(r=this.ctx.r){const raw=await r.settings.get('blind_withdrawal_limit_cents');const v=raw===null||raw===undefined||String(raw).trim()===''?NaN:Number(raw);return Number.isSafeInteger(v)&&v>=0?v:DEFAULT_BLIND_LIMIT;}
+  // Whether an employee is blind to the open shift's totals whatever "cash.view_expected" they were given long ago
+  // (src/auth/CashVisibilityPolicy.js). On unless the administrator turned it off.
+  async strictBlind(r=this.ctx.r){return (await r.settings.get('strict_blind'))!=='0';}
+  async setStrictBlind(on){assert(typeof on==='boolean','Opção inválida');await this.ctx.r.settings.set('strict_blind',on?'1':'0');return on;}
   async setBlindWithdrawalLimit(amount){const cents=readMoney(amount);assert(cents>=0&&cents<=10000000,'Limite inválido');await this.ctx.r.settings.set('blind_withdrawal_limit_cents',cents);return cents;}
-  // shiftId (optional): the shift the person counted. A second close of the same shift (a double click, a screen
-  // left open) is refused instead of closing the next one.
-  async closeShift(counted,{shiftId}={}){
-    const {ctx}=this;const s=await this.cashSummary();
-    if(shiftId!==undefined&&shiftId!==null&&shiftId!==''&&(!s.shift||Number(shiftId)!==s.shift.id))throw Object.assign(Error('Este caixa já foi fechado.'),{status:409,expose:{closed:true}});
-    assert(s.shift,'Não há caixa aberto');
-    const pending=(await ctx.sales.listDraftSales()).filter(d=>d.item_count>0);
-    assert(!pending.length,pending.length===1?`Existe 1 venda em aberto (${pending[0].label}). Finalize ou descarte essa venda para fechar o caixa.`:`Existem ${pending.length} vendas em aberto. Finalize ou descarte essas vendas para fechar o caixa.`);
-    const c=readMoney(counted);const closedBy=await ctx.employees.operatorId();
-    await ctx.tx(async t=>{
-      // Sales left without items are just empty tabs: they close with the shift.
-      const at=now();await t.openSales.discardOpenOfShift(s.shift.id,at);
-      await t.cash.close(s.shift.id,{closedAt:at,countedCents:c,expectedCents:s.expectedCents,closedBy});
-    });
-    const differenceCents=c-s.expectedCents;
-    return {shiftId:s.shift.id,status:closeStatus(differenceCents),openingCents:s.shift.opening_cents,expectedCents:s.expectedCents,countedCents:c,differenceCents,methods:s.methods,totalCents:s.totalCents,salesCount:s.salesCount,canceledCount:s.canceledCount,suppliesCents:s.suppliesCents,withdrawalsCents:s.withdrawalsCents};
+  // The close is the count of the four payment methods (src/services/ReconciliationService.js): counted is
+  // {cash,pix,credit,debit}, with the shift it was typed for and the idempotencyKey the screen made for this close.
+  // A single value (the close of before: only the drawer was counted) is still accepted: the other three methods are
+  // then taken as matched, and the answer keeps its old shape.
+  async closeShift(counted,{shiftId,idempotencyKey}={}){
+    const rec=this.ctx.reconciliation;
+    if(counted!==null&&typeof counted==='object'){
+      const r=await rec.confirmClose({shiftId,idempotencyKey,counted});
+      return {shiftId:r.reconciliation.shiftId,duplicate:r.duplicate,reconciliation:r.reconciliation};
+    }
+    const r=await rec.confirmClose({shiftId,idempotencyKey:idempotencyKey||'legacy-'+randomUUID(),legacyCash:counted});
+    return {shiftId:r.reconciliation.shiftId,...r.legacy,reconciliation:r.reconciliation,duplicate:r.duplicate};
   }
 }
 module.exports={CashService,closeStatus,DEFAULT_BLIND_LIMIT};

@@ -103,7 +103,7 @@ const LOADERS={
  banco:async()=>{A.db=await apiGet('database');},
  backup:async()=>{A.backup=await apiGet('backup');},
  seguranca:async()=>{[A.status,A.access]=await Promise.all([status(),apiGet('access-log')]);},
- manutencao:async()=>{A.diag=await apiGet('diagnostics');},preferencias:async()=>{[A.diag,A.backup]=await Promise.all([apiGet('diagnostics'),apiGet('backup')]);},
+ manutencao:async()=>{A.diag=await apiGet('diagnostics');},preferencias:async()=>{[A.diag,A.backup,A.printers]=await Promise.all([apiGet('diagnostics'),apiGet('backup'),apiGet('printers').catch(()=>null)]);},
  sobre:async()=>{A.diag=await apiGet('diagnostics');},demo:async()=>{},
  usuarios:async()=>{[A.ops,A.opsAudit]=await Promise.all([apiGet('operators'),apiGet('operators/audit')]);}
 };
@@ -404,6 +404,28 @@ VIEWS.manutencao=()=>{
    ${d.logs.recent.length?`<pre class="adm-log tall">${d.logs.recent.map(l=>safe(logLine(l))).join('\n')}</pre>`:emptyState('history','Sem registros','')}
   </div>`;
 };
+function printerCard(){
+ const o=A.printers;if(!o)return '';const st=o.settings,names=(o.list&&o.list.printers||[]).map(x=>x.name);
+ const opt=(v,l,sel)=>`<option value="${safe(v)}" ${sel?'selected':''}>${safe(l)}</option>`;
+ const fails=(o.failures||[]).slice(0,5);
+ return `<div class="card"><div class="card-title"><span>Impressora de fechamento</span>${icon('sliders')}</div>
+  ${notice('Aguardando homologação física na Elgin i9: o envio pela fila do Windows foi testado só com impressora simulada. Faça o teste de impressão antes de ligar a impressão automática.','warn','alert')}
+  <p class="minor">Situação: <strong>${safe(o.status&&o.status.label||'—')}</strong>${o.account&&o.account.user?` · conta do PDV: ${safe(o.account.user)}`:''}</p>
+  <form class="form" data-form="printer-save">
+   <label>Impressora (fila do Windows)<input name="printerName" list="printer-names" value="${safe(st.printerName)}" maxlength="120"/></label><datalist id="printer-names">${names.map(n=>`<option value="${safe(n)}">`).join('')}</datalist>
+   <div class="grid2"><label>Modelo<select name="type">${Object.entries(o.types).map(([k,l])=>opt(k,l,st.type===k)).join('')}</select></label>
+   <label>Forma de envio<select name="transport">${o.transports.map(t=>opt(t.id,t.label+(t.supported?'':' (indisponível)'),st.transport===t.id)).join('')}</select></label></div>
+   <div class="grid2"><label>Caracteres por linha<input name="columns" inputmode="numeric" value="${st.columns}"/></label><label>Vias<input name="copies" inputmode="numeric" value="${st.copies}"/></label></div>
+   <div class="grid2"><label>Nome da loja<input name="storeName" value="${safe(st.storeName)}" maxlength="40"/></label><label>Unidade<input name="unit" value="${safe(st.unit)}" maxlength="40"/></label></div>
+   <div class="grid2"><label>Cabeçalho<input name="header" value="${safe(st.header)}" maxlength="60"/></label><label>Rodapé<input name="footer" value="${safe(st.footer)}" maxlength="60"/></label></div>
+   <label class="check-row"><input type="checkbox" name="autoPrint" ${st.autoPrint?'checked':''}/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>Imprimir ao confirmar o fechamento</strong><small>Se a impressão falhar, o fechamento continua confirmado.</small></span></label>
+   <label class="check-row"><input type="checkbox" name="cutVerified" ${st.cutVerified?'checked':''}/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>O corte foi testado nesta impressora</strong><small>Marque só depois de ver o teste com corte funcionar.</small></span></label>
+   <label class="check-row"><input type="checkbox" name="autoCut" ${st.autoCut?'checked':''}/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>Cortar o papel ao final</strong><small>Só vale com o corte testado.</small></span></label>
+   <div class="form-actions"><button type="submit" class="primary">${icon('check')}Salvar impressora</button><button type="button" class="secondary" data-act="printer-test">${icon('sliders')}Imprimir teste</button><button type="button" class="secondary" data-act="printer-test" data-cut="1">Teste com corte</button></div>
+  </form>
+  ${fails.length?`<div class="section-label spaced">Últimas falhas de impressão</div>${fails.map(j=>`<div class="rowline"><span class="grow"><strong>Turno ${j.shiftId??'—'} · ${safe(j.status)}</strong><small>${when(j.requestedAt)} · ${safe(j.lastError||'')}</small></span></div>`).join('')}`:''}
+ </div>`;
+}
 VIEWS.preferencias=()=>{
  const d=A.diag,b=A.backup,st=d.settings||{};
  return `${head('Configurações','Preferências técnicas desta instalação.')}
@@ -421,6 +443,7 @@ VIEWS.preferencias=()=>{
     ${rows([['Pasta principal',d.paths.home,'mono'],['Banco de dados',d.paths.data,'mono'],['Backups',d.paths.backups,'mono'],['Registros (logs)',d.paths.logs,'mono']])}
     <p class="minor top-gap">Os dados ficam fora da pasta do programa: atualizar ou reinstalar o PDV não apaga nada.</p>
    </div>
+   ${printerCard()}
    <div class="card"><div class="card-title"><span>Balança e operação</span>${icon('scale')}</div>
     <p class="minor">Porta da balança, preço por quilo, lançamento automático e funcionários ficam nas telas de operação.</p>
     <div class="form-actions"><button type="button" class="secondary" data-goto="balanca">${icon('scale')}Balança Toledo</button><button type="button" class="secondary" data-goto="funcionarios">${icon('users')}Funcionários</button></div>
@@ -505,7 +528,8 @@ function permCard(o){
 }
 const limitCard=s=>`<div class="card"><div class="card-title"><span>Sangria sem ver o saldo</span>${icon('wallet')}</div>
   <p class="minor">Quem fecha o caixa às cegas pode fazer sangrias de até este valor por vez. Acima dele, só quem vê o saldo do caixa, ou o administrador.</p>
-  <form class="form" data-form="op-limit"><label>Limite por sangria (R$)<input name="limit" inputmode="decimal" value="${price(s.blindWithdrawalLimitCents)}" maxlength="12" required/></label><div class="form-actions"><button type="submit" class="secondary">${icon('check')}Salvar limite</button></div></form></div>`;
+  <form class="form" data-form="op-limit"><label>Limite por sangria (R$)<input name="limit" inputmode="decimal" value="${price(s.blindWithdrawalLimitCents)}" maxlength="12" required/></label><div class="form-actions"><button type="submit" class="secondary">${icon('check')}Salvar limite</button></div></form>
+  <form class="form top-gap" data-form="op-strict"><label class="check-row"><input type="checkbox" name="strict" ${s.strictBlind?'checked':''}/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>Conferência cega rigorosa</strong><small>Ligada: nenhum funcionário vê totais, valores esperados ou diferenças antes de confirmar a contagem, mesmo com a permissão antiga de ver o esperado. Só o administrador vê durante o turno.</small></span></label><div class="form-actions"><button type="submit" class="secondary">${icon('check')}Salvar</button></div></form></div>`;
 function auditCard(){
  const label=permLabel(),list=A.opsAudit||[];
  const line=a=>{const d=detailText(a.detail,label);return `<div class="rowline"><span class="ev-icon ${a.ok?'in':'out'}">${icon(a.ok?'check':'alert')}</span><div class="grow"><strong>${safe(ACTIONS[a.action]||a.action)}</strong><small>${when(a.at)} · ${safe(a.username||'—')}${d?` · ${safe(d)}`:''}</small></div></div>`;};
@@ -604,6 +628,18 @@ const FORMS={
    pw=>apiPost('operators/settings',{blindWithdrawalLimit:limit,password:pw}));
   if(r){flash('Limite de sangria salvo');go('usuarios');}
  },
+ async 'op-strict'(form){
+  const strict=!!form.elements.strict.checked;
+  const r=await withPassword({title:strict?'Ligar a conferência cega rigorosa?':'Desligar a conferência cega rigorosa?',message:strict?'Ninguém além do administrador verá totais antes de confirmar a contagem.':'Quem tem a permissão de ver o esperado volta a ver os totais durante o turno.',confirmLabel:'Salvar'},
+   pw=>apiPost('operators/settings',{strictBlind:strict,password:pw}));
+  if(r){flash('Conferência cega salva');go('usuarios');}
+ },
+ async 'printer-save'(form){
+  const f=formData(form);
+  const r=await withPassword({title:'Salvar a impressora de fechamento?',message:'Vale para este computador.',confirmLabel:'Salvar',iconName:'sliders'},
+   pw=>apiPost('printers/settings',{printerName:f.printerName,type:f.type,transport:f.transport,columns:Number(f.columns),copies:Number(f.copies),storeName:f.storeName,unit:f.unit,header:f.header,footer:f.footer,autoPrint:!!form.elements.autoPrint.checked,autoCut:!!form.elements.autoCut.checked,cutVerified:!!form.elements.cutVerified.checked,password:pw}));
+  if(r){flash('Impressora salva');go('preferencias');}
+ },
  async 'restore-key'(form,btn){
   const {key}=formData(form);await guard(btn,()=>validateRestore(key));
  }
@@ -683,6 +719,10 @@ const ACTS={
  'op-pin':b=>{A.opPin=Number(b.dataset.id);A.opSel=null;draw();},
  'op-perms':b=>{A.opSel=Number(b.dataset.id);A.opPin=null;draw();},
  'op-close':()=>{A.opSel=A.opPin=null;draw();},
+ async 'printer-test'(b){
+  const r=await guard(b,()=>apiPost('printers/test',{cut:b.dataset.cut==='1'}));
+  if(r){if(r.mode==='browser'&&r.text){document.getElementById('print-area').textContent=r.text;setTimeout(()=>window.print(),50);}else flash(r.message||'Teste enviado. Confira o papel.',r.ok===false);}
+ },
  async 'op-defaults'(b){
   const o=opById(b.dataset.id);if(!o)return;const label=permLabel();
   const r=await withPassword({title:`Restaurar o padrão de ${o.name}?`,message:`Todas as permissões voltam ao perfil do operador padrão: ${A.ops.catalog.defaults.map(label).join(', ')}.`,confirmLabel:'Restaurar padrão',iconName:'refresh'},

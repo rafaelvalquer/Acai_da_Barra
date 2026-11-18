@@ -7,20 +7,23 @@
 // Every function returns a new object; the state the store keeps between requests is never changed.
 const {hasPermission}=require('./AuthorizationService');
 const can=(identity,p)=>hasPermission(identity,p);
-const seesExpected=identity=>can(identity,'cash.view_expected');
+// strict (the default, setting "strict_blind"): an employee never sees the open shift's totals, whatever "cash.view_expected"
+// they were given before the full count existed. Only the administrator does, and the employee who closed sees
+// the figures of that close afterwards (the confirmed report, src/server.js). Turned off, the permission works as before.
+const seesExpected=(identity,{strict=true}={})=>can(identity,'cash.view_expected')&&(!strict||identity.kind==='admin');
 const seesMovements=identity=>can(identity,'cash.view_history')||can(identity,'cash.move');
 // The cash panel of the open shift (store.cashSummary()).
-function cash(summary,identity){
+function cash(summary,identity,opts){
   if(!summary)return summary;
   const events=seesMovements(identity)?summary.events||[]:[];
-  if(seesExpected(identity))return {...summary,events,blind:false};
+  if(seesExpected(identity,opts))return {...summary,events,blind:false};
   const s=summary.shift;
   return {shift:s?{id:s.id,opened_at:s.opened_at,opened_by:s.opened_by,opened_by_name:s.opened_by_name,active_draft_id:s.active_draft_id}:null,
     blind:true,salesCount:summary.salesCount||0,canceledCount:summary.canceledCount||0,events};
 }
 // The answer to closing the shift (store.closeShift()).
-function closeResult(r,identity){
-  if(!seesExpected(identity))return {shiftId:r.shiftId,status:r.status,blind:true};
+function closeResult(r,identity,opts){
+  if(!seesExpected(identity,opts))return {shiftId:r.shiftId,status:r.status,blind:true};
   return {shiftId:r.shiftId,expectedCents:r.expectedCents,countedCents:r.countedCents,differenceCents:r.differenceCents,status:r.status,blind:false,
     openingCents:r.openingCents,methods:r.methods,totalCents:r.totalCents,salesCount:r.salesCount,canceledCount:r.canceledCount,suppliesCents:r.suppliesCents,withdrawalsCents:r.withdrawalsCents};
 }
@@ -29,12 +32,19 @@ const moveResult=cash;
 // Reports (store.report()): the closings only with "cash.view_history", and their expected and difference only with
 // "cash.view_expected"; without it, no totals per payment method and no list of sales either (the cash ones would
 // add up to the drawer balance of the open shift).
-function report(rep,identity){
-  const expected=seesExpected(identity);
+function report(rep,identity,opts){
+  const expected=seesExpected(identity,opts);
   const shifts=can(identity,'cash.view_history')?(rep.shifts||[]).map(s=>expected?{...s}:withoutBalance(s)):[];
   if(expected)return {...rep,shifts,blind:false};
   const {methods,sales,...rest}=rep;
   return {...rest,shifts,blind:true};
+}
+// The sales of the open shift for someone who may not see its totals: each sale as it is, but not how it was paid
+// (adding them up by method would give the drawer balance and the Pix and card totals).
+function salesOfShift(sale,identity,opts){
+  if(seesExpected(identity,opts)||!sale)return sale;
+  const strip=s=>({...s,method:null,received_cents:null,change_cents:null});
+  return Array.isArray(sale.sales)?{...sale,sales:sale.sales.map(strip)}:strip(sale);
 }
 // A closing without its amounts: only whether the count matched.
 function withoutBalance(s){
@@ -42,4 +52,4 @@ function withoutBalance(s){
   const d=difference_cents===null||difference_cents===undefined?null:Number(difference_cents);
   return {...rest,status:s.closed_at&&d!==null?(d<0?'FALTA':d>0?'SOBRA':'CONFERIDO'):null,blind:true};
 }
-module.exports={cash,closeResult,moveResult,report,seesExpected,seesMovements};
+module.exports={cash,closeResult,moveResult,report,salesOfShift,seesExpected,seesMovements};

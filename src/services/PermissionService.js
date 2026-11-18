@@ -1,5 +1,5 @@
 'use strict';
-const {CATALOG,isKnown}=require('../auth/PermissionCatalog');const {assert,integer,now,byName}=require('./util');
+const {CATALOG,isKnown,IMPLIED_BY_CLOSE}=require('../auth/PermissionCatalog');const {assert,integer,now,byName}=require('./util');
 // What each employee may do at the till, kept in the commercial database with the employees (so it goes with the
 // backups and to the cloud copy). Only the administrator changes it (src/admin/AdminApi.js). Who may sign in, and
 // with which PIN, is not here: that is config/admin.sqlite (src/auth/OperatorAuthService.js).
@@ -28,9 +28,10 @@ class PermissionService {
   }
   // Every employee with their uuid and allowed permissions, for checking each request (cached by the store).
   async accessIndex(){
-    const r=this.ctx.r;const [team,allowed]=await Promise.all([r.employees.listWithUuid(),r.permissions.allowed()]);
-    const byId=new Map(team.map(e=>[Number(e.id),{id:Number(e.id),uuid:e.uuid,name:e.name,active:Number(e.active)===1,allowed:[]}]));
+    const r=this.ctx.r;const [team,allowed,decided]=await Promise.all([r.employees.listWithUuid(),r.permissions.allowed(),r.permissions.decidedAmong(IMPLIED_BY_CLOSE)]);
+    const byId=new Map(team.map(e=>[Number(e.id),{id:Number(e.id),uuid:e.uuid,name:e.name,active:Number(e.active)===1,allowed:[],decided:new Set()}]));
     for(const a of allowed)byId.get(Number(a.employee_id))?.allowed.push(a.permission);
+    for(const d of decided)byId.get(Number(d.employee_id))?.decided.add(d.permission);
     const byUuid=new Map();for(const e of byId.values()){e.allowed.sort();byUuid.set(e.uuid,e);}
     return {byUuid,byId};
   }

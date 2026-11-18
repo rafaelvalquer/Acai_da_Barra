@@ -45,6 +45,7 @@ function ask(title,message,{confirmLabel='Confirmar',tone='primary',input=null,d
  d.classList.toggle('is-danger',tone==='danger-solid');d.classList.toggle('is-success',tone==='success');
  $('confirm-details').innerHTML=details?details.map(([label,value,cls])=>`<div class="rowline"><span>${safe(label)}</span><strong class="${cls||''}">${safe(value)}</strong></div>`).join(''):'';
  const field=$('confirm-input');$('confirm-field').classList.toggle('hidden',!input);field.required=!!input;field.minLength=input?3:0;field.value='';
+ field.type=input?.secret?'password':'text';
  if(input){$('confirm-field-label').textContent=input.label;field.placeholder=input.placeholder||'';}
  d.returnValue='';d.showModal();(input?field:tone==='danger-solid'&&!alert?$('confirm-cancel'):$('confirm-ok')).focus();
  return new Promise(resolve=>d.addEventListener('close',()=>resolve(d.returnValue!=='ok'?false:input?field.value.trim():true),{once:true}));
@@ -159,6 +160,65 @@ function openTransfer(key){
 const CLOSE_STATUS={CONFERIDO:['Conferido','pos','O dinheiro contado bate com o esperado.'],
  FALTA:['Falta dinheiro','neg','O dinheiro contado é menor que o esperado. O administrador vê os detalhes do fechamento.'],
  SOBRA:['Sobra dinheiro','warn','O dinheiro contado é maior que o esperado. O administrador vê os detalhes do fechamento.']};
+// The close by payment method: four typed counts, a review, then the result. The server sends no total before the close is
+// confirmed; after it, the person who closed (or anyone with the permission) sees the figures of that close.
+const CLOSE_FIELDS=[['cash','close-cash','Dinheiro'],['pix','close-pix','Pix'],['credit','close-credit','Crédito'],['debit','close-debit','Débito']];
+const CORRECT_FIELDS=[['cash','correct-cash','Dinheiro'],['pix','correct-pix','Pix'],['credit','correct-credit','Crédito'],['debit','correct-debit','Débito']];
+const DIFF_TAG={CONFERIDO:['Conferido','on'],FALTA:['Falta','off'],SOBRA:['Sobra','warn']};
+let closeAttempt=null,closingsKey='';
+const diffClass=c=>c<0?'neg':c>0?'pos':'';
+function reportDetails(rep){
+ const rows=rep.items.map(i=>[i.label,`${money(i.countedCents)} informado · ${money(i.expectedCents)} sistema · ${signed(i.differenceCents)}`,diffClass(i.differenceCents)]);
+ rows.push(['Total informado',money(rep.totals.countedCents)],['Total sistema',money(rep.totals.expectedCents)],['Diferença total',signed(rep.totals.differenceCents),diffClass(rep.totals.differenceCents)],['Faturamento do turno',money(rep.totals.revenueCents)]);
+ if(rep.revision>1)rows.push(['Revisão',`${rep.revision} (corrigida)`]);
+ return rows;
+}
+// Browser fallback: the text goes to a hidden block and the browser's own print dialog (80 mm layout in the print CSS).
+function browserPrint(text){$('print-area').textContent=text;setTimeout(()=>window.print(),50);}
+function printNote(p){
+ if(!p)return null;
+ if(p.mode==='browser'&&p.text){browserPrint(p.text);return 'Abrindo a impressão do navegador.';}
+ return p.message||(p.ok?'Enviado para a impressora.':'Não foi possível imprimir.');
+}
+async function showClose(r){
+ const note=printNote(r.print);
+ if(!r.report){await ask('Caixa fechado','A contagem foi confirmada. O administrador vê o resultado da conferência.',{alert:true,confirmLabel:'Concluir',tone:'success'});loadClosings();return;}
+ const rows=reportDetails(r.report);if(note)rows.push(['Impressão',note,r.print&&r.print.ok===false?'neg':'']);
+ const st=DIFF_TAG[r.report.totals.status];
+ await ask('Caixa fechado',st?`Conferência: ${st[0]}.`:'Conferência confirmada.',{alert:true,confirmLabel:'Concluir',tone:'success',details:rows});
+ loadClosings();
+}
+async function loadClosings(){
+ const card=$('closings-card');
+ if(!can('cash.reconciliation.view_confirmed')&&!can('cash.view_history')){card.classList.add('hidden');return;}
+ try{
+  const r=await get('/api/shift/closings');card.classList.remove('hidden');
+  paint('closings-list',r.closings.length?r.closings.slice(0,15).map(c=>{
+   const st=DIFF_TAG[c.totals&&c.totals.status]||['Fechado',''];const rev=c.revision>1?` · revisão ${c.revision}`:'';
+   const btn=(a,t)=>`<button type="button" class="secondary" data-act="${a}" data-shift="${c.shiftId}" data-rev="${c.revision||''}">${t}</button>`;
+   const actions=c.legacy?'<small>Fechamento antigo (um valor)</small>':[btn('view','Ver'),can('cash.reconciliation.print')?btn('print','Imprimir'):'',can('cash.reconciliation.reprint')?btn('reprint','2ª via'):'',
+    can('cash.reconciliation.reopen')?btn('reopen','Reabrir'):'',can('cash.reconciliation.correct')?btn('correct','Corrigir'):''].join('');
+   return `<div class="closing-row"><div class="grow"><strong>Turno ${c.shiftId}${rev}</strong><small>${date(c.closedAt)} · ${safe(c.confirmedBy||'—')}${c.reopened?' · reaberta para correção':''}</small></div><span class="tag ${st[1]}">${st[0]}</span><div class="row-actions">${actions}</div></div>`;}).join('')
+   :emptyState('wallet','Nenhum fechamento ainda','Os fechamentos confirmados aparecem aqui.'));
+ }catch(e){card.classList.add('hidden');}
+}
+async function closingAction(act,shiftId,revision){
+ const q=`shiftId=${shiftId}${revision?`&revision=${revision}`:''}`;
+ try{
+  if(act==='view'){const r=await get(`/api/shift/closings/report?${q}`);return void await ask(`Turno ${shiftId}`,'Conferência confirmada.',{alert:true,confirmLabel:'Fechar',details:reportDetails(r.report)});}
+  if(act==='print'||act==='reprint'){
+   const send=async confirmDuplicate=>{try{return await post('/api/shift/closings/print',{shiftId,revision,reprint:act==='reprint',confirmDuplicate});}
+    catch(e){if(e.status===409&&e.data&&e.data.needsConfirmation&&!confirmDuplicate){if(await ask('Confirmar nova via',e.message,{confirmLabel:'Imprimir outra via',tone:'danger-solid'}))return send(true);return null;}throw e;}};
+   const r=await send(false);if(!r)return;const note=printNote(r.result.print);flash(note||'Pronto',r.result.print&&r.result.print.ok===false);return loadClosings();
+  }
+  if(act==='reopen'){
+   const reason=await ask(`Reabrir a conferência do turno ${shiftId}?`,'A conferência fica aberta para correção. As vendas não são alteradas.',{input:{label:'Justificativa (obrigatória)'},confirmLabel:'Continuar',tone:'danger-solid'});if(!reason)return;
+   const password=await ask('Senha do administrador','Confirme com a senha do administrador.',{input:{label:'Senha',secret:true},confirmLabel:'Reabrir'});if(!password)return;
+   await post('/api/shift/closings/reopen',{shiftId,reason,password});flash('Conferência reaberta');return loadClosings();
+  }
+  if(act==='correct'){const d=$('correct-dialog');d.dataset.shift=shiftId;for(const [,el] of CORRECT_FIELDS)$(el).value='';$('correct-reason').value='';$('correct-password').value='';d.showModal();$('correct-cash').focus();}
+ }catch(e){flash(e.message,true);}
+}
 function renderCash(){
  const cash=state.cash,shift=cash.shift,blind=!!cash.blind,events=cash.events;
  const opened=shift?`<span class="chip on">Aberto às ${time(shift.opened_at)}${shift.opened_by_name?` por ${safe(shift.opened_by_name)}`:''}</span>`:'';
@@ -169,9 +229,9 @@ function renderCash(){
   <div class="section-label spaced">${turn}</div><div class="method-grid">${['pix','cash','debit','credit'].map(m=>`<div><small>${PAY[m]}</small><strong>${money(cash.methods[m])}</strong></div>`).join('')}<div class="method-total"><small>Total vendido</small><strong>${money(cash.totalCents)}</strong></div></div>`);
  const allowed=['cash.open','cash.move','cash.close'].filter(can).join();
  const key=shift?`open:${shift.id}:${allowed}:${blind}`:`closed:${allowed}:${state.auth?.person?.name||''}`;
- if(cashControlKey!==key){cashControlKey=key;
+ if(cashControlKey!==key){cashControlKey=key;loadClosings();
   const move=can('cash.move')?`<div class="section-label">Nova movimentação</div><div class="grid2"><label>Tipo de movimentação<select id="movement-kind"><option value="withdrawal">Sangria (retirada)</option><option value="supply">Suprimento (entrada)</option></select></label><label>Valor (R$)<input id="movement-amount" placeholder="20,00" inputmode="decimal"></label></div><label>Descrição<input id="movement-note" placeholder="Ex.: retirada para cofre"></label><button class="secondary" id="btn-move">${icon('swap')}Registrar movimentação</button>`:'';
-  const close=can('cash.close')?`<div class="section-label">Fechamento do turno</div><label>${blind?'Dinheiro contado na gaveta (R$)':'Dinheiro contado no fechamento (R$)'}<input id="close-counted" inputmode="decimal" placeholder="0,00" autocomplete="off"></label><button class="danger" id="btn-close">${icon('lock')}Fechar turno</button>`:'';
+  const close=can('cash.close')?`<div class="section-label">Conferência de fechamento</div><div class="notice blind-note">${icon('lock')}<span>Conte o dinheiro da gaveta e confira as maquininhas e o Pix. Digite o valor de cada forma de pagamento (use 0,00 se não houve). O resultado só aparece depois de confirmar.</span></div><div class="grid2"><label>Dinheiro na gaveta (R$)<input id="close-cash" inputmode="decimal" placeholder="0,00" autocomplete="off"></label><label>Pix (R$)<input id="close-pix" inputmode="decimal" placeholder="0,00" autocomplete="off"></label><label>Cartão de crédito (R$)<input id="close-credit" inputmode="decimal" placeholder="0,00" autocomplete="off"></label><label>Cartão de débito (R$)<input id="close-debit" inputmode="decimal" placeholder="0,00" autocomplete="off"></label></div><button class="danger" id="btn-close">${icon('lock')}Conferir e fechar turno</button>`:'';
   $('cash-controls').innerHTML=shift?(move||close?`<div class="form">${move}${move&&close?'<div class="hline"></div>':''}${close}</div>`:`<div class="notice">${icon('info')}<span>Sangrias, suprimentos e o fechamento ficam com quem tem permissão. Peça ao administrador.</span></div>`)
    :can('cash.open')?`<div class="form"><p class="minor">O turno é aberto em nome de <strong>${safe(state.auth?.person?.name||'')}</strong>.</p><label>Fundo inicial em dinheiro (R$)<input id="opening-amount" placeholder="100,00" value="0,00" inputmode="decimal"></label><button class="primary big" id="btn-open">${icon('unlock')}Abrir caixa</button></div>`
    :`<div class="notice">${icon('info')}<span>Você não tem permissão para abrir o caixa. Peça ao administrador.</span></div>`;}
@@ -258,13 +318,13 @@ async function renderHistory(){
  const r=await get('/api/sales?'+p);const done=r.sales.filter(x=>x.status==='done'),canceled=r.sales.length-done.length;
  // Without the reports permission the server lists only the sales of the open shift.
  $('hist-summary').innerHTML=`${r.shiftOnly?`<span class="tag">${icon('lock')}Só as vendas do caixa aberto</span>`:''}<span>${plural(r.sales.length,'venda','vendas')}</span><span>Concluídas: <strong>${money(done.reduce((s,x)=>s+x.total_cents,0))}</strong></span>${canceled?`<span class="neg">${plural(canceled,'cancelada','canceladas')}</span>`:''}${r.sales.length>=500?'<span>Mostrando as 500 mais recentes</span>':''}`;
- $('hist-list').innerHTML=r.sales.length?`<div class="table-wrap"><table class="table clickable"><thead><tr><th>Venda</th><th>Data e hora</th><th>Operador</th><th>Itens</th><th>Pagamento</th><th>Total</th><th>Situação</th></tr></thead><tbody>${r.sales.map(x=>`<tr data-sale="${x.id}" tabindex="0"><td><strong>#${x.id}</strong></td><td>${date(x.created_at)}</td><td>${safe(x.operator_name||'—')}</td><td>${x.item_count}${x.has_manual?' <span class="tag warn">digitado</span>':''}</td><td><span class="tag">${safe(PAY[x.method])}</span></td><td><strong class="${x.status==='canceled'?'strike':''}">${money(x.total_cents)}</strong></td><td>${x.status==='canceled'?'<span class="tag off">Cancelada</span>':'<span class="tag on">Concluída</span>'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('receipt','Nenhuma venda encontrada',r.shiftOnly?'Aparecem aqui só as vendas do caixa aberto. As anteriores ficam nos relatórios.':'Ajuste as datas, a situação ou o número da venda.');
+ $('hist-list').innerHTML=r.sales.length?`<div class="table-wrap"><table class="table clickable"><thead><tr><th>Venda</th><th>Data e hora</th><th>Operador</th><th>Itens</th><th>Pagamento</th><th>Total</th><th>Situação</th></tr></thead><tbody>${r.sales.map(x=>`<tr data-sale="${x.id}" tabindex="0"><td><strong>#${x.id}</strong></td><td>${date(x.created_at)}</td><td>${safe(x.operator_name||'—')}</td><td>${x.item_count}${x.has_manual?' <span class="tag warn">digitado</span>':''}</td><td><span class="tag">${safe(PAY[x.method]||"—")}</span></td><td><strong class="${x.status==='canceled'?'strike':''}">${money(x.total_cents)}</strong></td><td>${x.status==='canceled'?'<span class="tag off">Cancelada</span>':'<span class="tag on">Concluída</span>'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('receipt','Nenhuma venda encontrada',r.shiftOnly?'Aparecem aqui só as vendas do caixa aberto. As anteriores ficam nos relatórios.':'Ajuste as datas, a situação ou o número da venda.');
  }catch(e){flash(e.message,true);}
 }
 async function openSale(id){
  try{const s=await get('/api/sales/detail?id='+id);currentSale=s;
  $('sale-title').innerHTML=`Venda #${s.id} ${s.status==='canceled'?'<span class="tag off">Cancelada</span>':'<span class="tag on">Concluída</span>'}`;
- $('sale-body').innerHTML=`<div class="sale-meta"><div><small>Data e hora</small><strong>${date(s.created_at)}</strong></div><div><small>Operador</small><strong>${safe(s.operator_name||'—')}</strong></div><div><small>Pagamento</small><strong>${safe(PAY[s.method])}</strong></div><div><small>Itens</small><strong>${s.items.length}</strong></div>${s.draft_label?`<div><small>Atendimento</small><strong>${safe(s.draft_label)}</strong></div>`:''}</div>
+ $('sale-body').innerHTML=`<div class="sale-meta"><div><small>Data e hora</small><strong>${date(s.created_at)}</strong></div><div><small>Operador</small><strong>${safe(s.operator_name||'—')}</strong></div><div><small>Pagamento</small><strong>${safe(PAY[s.method]||"—")}</strong></div><div><small>Itens</small><strong>${s.items.length}</strong></div>${s.draft_label?`<div><small>Atendimento</small><strong>${safe(s.draft_label)}</strong></div>`:''}</div>
   <div class="sale-items">${s.items.map(i=>`<div class="rowline"><div class="grow"><strong>${safe(i.label)}${i.manual?' <span class="tag warn">digitado</span>':''}</strong><small>${itemLine(i.kind,i.grams,i.quantity,i.unit_cents)}</small></div><strong>${money(i.total_cents)}</strong></div>`).join('')}</div>
   <div class="sale-total ${s.status==='canceled'?'is-canceled':''}"><span>Total</span><strong>${money(s.total_cents)}</strong></div>
   ${s.received_cents!=null?`<div class="sale-change"><div class="rowline"><span>Valor recebido</span><strong>${money(s.received_cents)}</strong></div><div class="rowline"><span>Troco</span><strong>${money(s.change_cents)}</strong></div></div>`:''}
@@ -541,15 +601,26 @@ async function boot(){
   const open=(state.openSales||[]).filter(d=>d.item_count>0);
   if(id==='btn-close'&&open.length)return ask(open.length===1?'Existe 1 venda em aberto':`Existem ${open.length} vendas em aberto`,open.length===1?'Cobre ou descarte essa venda para fechar o caixa. Toque nela na lista acima para abri-la.':'Cobre ou descarte essas vendas para fechar o caixa. Toque em cada uma na lista acima para abri-la.',{alert:true,confirmLabel:'Entendi',details:open.map(d=>[d.label,money(d.total_cents)])});
   if(id!=='btn-close')return;
-  const shift=state.cash.shift,counted=$('close-counted').value.trim(),blind=!!state.cash.blind;if(!shift)return;
-  if(parseMoney(counted)===null)return flash(counted?'Use valor como 250,00':'Digite o dinheiro contado na gaveta.',true);
-  if(!await ask('Fechar o caixa agora?',blind?`Dinheiro contado: ${money(parseMoney(counted))}. Confira antes de continuar: depois de fechado, o turno não é reaberto.`:'Confira o dinheiro contado antes de continuar. O turno será encerrado.',{confirmLabel:'Fechar turno',tone:'danger-solid'}))return;
-  // shiftId: the shift that was counted. A second close (double click, another screen) is refused, never applied to the next one.
-  run('/api/shift/close',{counted,shiftId:shift.id},r=>{const st=CLOSE_STATUS[r.status]||['Fechado','',''];
-   if(r.blind)return ask('Caixa fechado',st[2],{alert:true,confirmLabel:'Concluir',tone:r.status==='CONFERIDO'?'success':'primary',details:[['Conferência',st[0],st[1]]]});
-   return ask('Caixa fechado','Resumo do turno para conferência.',{alert:true,confirmLabel:'Concluir',tone:'success',details:[
-    ['Total vendido',money(r.totalCents)],['Vendas',String(r.salesCount)+(r.canceledCount?` (${plural(r.canceledCount,'cancelada','canceladas')})`:'')],['Pix',money(r.methods.pix)],['Dinheiro',money(r.methods.cash)],['Débito',money(r.methods.debit)],['Crédito',money(r.methods.credit)],
-    ['Fundo inicial',money(r.openingCents)],['Suprimentos',money(r.suppliesCents)],['Sangrias','− '+money(r.withdrawalsCents)],['Dinheiro esperado',money(r.expectedCents)],['Dinheiro contado',money(r.countedCents)],['Diferença',signed(r.differenceCents),r.differenceCents<0?'neg':r.differenceCents>0?'pos':''],['Conferência',st[0],st[1]]]});});
+  if(!state.cash.shift)return;
+  const shift=state.cash.shift,counted={};
+  for(const [m,el,label] of CLOSE_FIELDS){const v=$(el).value.trim();
+   if(parseMoney(v)===null){$(el).focus();return flash(v?`${label}: use valor como 250,00`:`${label}: digite o valor contado (0,00 se não houve).`,true);}counted[m]=v;}
+  const lines=CLOSE_FIELDS.map(([m,,label])=>[label,money(parseMoney(counted[m]))]);
+  if(!await ask('Revise a contagem',`Confira os valores antes de confirmar. Depois de fechado, o resultado aparece e o turno não é reaberto por você.`,{confirmLabel:'Confirmar e fechar',tone:'danger-solid',details:lines}))return;
+  // One key per shift and per set of values: a double click or a retry after a lost answer is the same close, never two.
+  const sig=JSON.stringify(counted);
+  if(!closeAttempt||closeAttempt.shiftId!==shift.id||closeAttempt.sig!==sig)closeAttempt={shiftId:shift.id,sig,key:crypto.randomUUID()};
+  const r=await run('/api/shift/close',{counted,shiftId:shift.id,idempotencyKey:closeAttempt.key});
+  if(r){closeAttempt=null;showClose(r);}
+ });
+ $('closings-list').addEventListener('click',e=>{const b=e.target.closest('button[data-act]');if(b)closingAction(b.dataset.act,Number(b.dataset.shift),Number(b.dataset.rev)||null);});
+ $('correct-cancel').addEventListener('click',()=>$('correct-dialog').close());
+ $('correct-form').addEventListener('submit',async e=>{e.preventDefault();
+  const counted={};for(const [m,el,label] of CORRECT_FIELDS){const v=$(el).value.trim();if(parseMoney(v)===null)return flash(`${label}: use valor como 250,00`,true);counted[m]=v;}
+  const reason=$('correct-reason').value.trim(),password=$('correct-password').value;if(reason.length<5)return flash('Escreva a justificativa (pelo menos 5 letras).',true);if(!password)return flash('Digite a senha do administrador.',true);
+  const shiftId=Number($('correct-dialog').dataset.shift);
+  const r=await run('/api/shift/closings/correct',{shiftId,idempotencyKey:crypto.randomUUID(),counted,reason,password});
+  $('correct-password').value='';if(r){$('correct-dialog').close();flash('Conferência corrigida');loadClosings();}
  });
  $('product-form').addEventListener('submit',e=>{e.preventDefault();run('/api/products/save',{id:$('product-id').value?Number($('product-id').value):undefined,name:$('product-name').value,price:$('product-price').value,stock:Number($('product-stock').value),
   category:$('product-category').value,channel:$('product-channel').value,favorite:$('product-favorite').checked},()=>{e.target.reset();flash('Produto salvo');});});

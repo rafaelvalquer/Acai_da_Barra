@@ -21,7 +21,8 @@ async function shiftOf250(t,cookie){
   ok(await t.post('/api/checkout',{saleId:st.activeSaleId,method:'cash',uuid:randomUUID(),received:'50,00'},cookie));
   return (await t.db.shift()).id;
 }
-async function blindTill(){const t=await tillServer();await t.db.updateConfig({priceKg:'100,00'});return t;}
+// legacy: the employee's "cash.view_expected" works as before (strict blind off). The default is strict: see reconciliation-permissions.test.js.
+async function blindTill({legacy=false}={}){const t=await tillServer();await t.db.updateConfig({priceKg:'100,00'});if(legacy)await t.db.setStrictBlind(false);return t;}
 
 test('C01 the cash panel of an employee without "cash.view_expected" carries no balance',async()=>{
   const t=await blindTill();try{
@@ -64,7 +65,7 @@ test('C05 the reports are refused to the employee; with "reports.view" they come
 });
 
 test('C06 an employee allowed to see the balance gets the amounts, and the exact close',async()=>{
-  const t=await blindTill();try{
+  const t=await blindTill({legacy:true});try{
     const c=await t.signIn('Bruno',[...DEFAULTS,'cash.view_expected']);const shiftId=await shiftOf250(t,c);
     const st=(await t.get('/api/state',c)).body;assert.equal(st.cash.blind,false);assert.equal(st.cash.expectedCents,25000);assert.equal(st.cash.shift.opening_cents,20000);
     assert.equal(st.cash.cashSalesCents,5000);
@@ -89,15 +90,15 @@ test('C07 the administrator sees the exact difference of a blind close',async()=
 });
 
 test('C08 a shift is closed once: a second close (double click, an old screen) is refused, never applied to the next one',async()=>{
-  const t=await blindTill();try{
+  const t=await blindTill({legacy:true});try{
     const c=await t.signIn('Carla',DEFAULTS);const first=await shiftOf250(t,c);
     ok(await t.post('/api/shift/close',{counted:'250,00',shiftId:first},c));
     let r=await t.post('/api/shift/close',{counted:'250,00',shiftId:first},c);assert.notEqual(r.status,200);
     const second=await shiftOf250(t,c);
     r=await t.post('/api/shift/close',{counted:'250,00',shiftId:first},c);assert.equal(r.status,409);assert.equal(r.body.closed,true);noBalance(r.body,[25000]);
     assert.equal((await t.db.shift()).id,second,'o turno novo continua aberto');
-    // There is no way to reopen a closed shift from the till.
-    assert.ok(!Object.keys(require('../src/server').POST_ROUTES).some(p=>/reopen|reabrir/.test(p)));
+    // There is no way to reopen a closed shift from the till (only its count can be reopened, by the administrator: /api/shift/closings/reopen).
+    assert.ok(!Object.keys(require('../src/server').POST_ROUTES).some(p=>!p.startsWith('/api/shift/closings/')&&/reopen|reabrir/.test(p)));
   }finally{await t.close();}
 });
 
@@ -123,7 +124,7 @@ test('C09 cash movements need "cash.move"; without the balance a withdrawal has 
 });
 
 test('C10 errors never reveal the expected balance, and a withdrawal does not work as a balance oracle',async()=>{
-  const t=await blindTill();try{
+  const t=await blindTill({legacy:true});try{
     const c=await t.signIn('Carla',[...DEFAULTS,'cash.move']);
     // An empty drawer: R$ 0,00 opening, no sales.
     ok(await t.post('/api/shift/open',{opening:'0,00'},c));

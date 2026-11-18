@@ -71,7 +71,8 @@ async function openShift(t,name='Ana'){
 }
 const active=async t=>(await t.get('/api/state')).body.activeSaleId;
 async function sell(t,amount='10,00',method='pix'){const saleId=await active(t);ok(await t.post('/api/cart/manual-value',{saleId,amount}));return ok(await t.post('/api/checkout',{saleId,method,uuid:randomUUID()})).sale;}
-async function closeShift(t){const st=(await t.get('/api/state')).body;ok(await t.post('/api/shift/close',{counted:(st.cash.expectedCents/100).toFixed(2).replace('.',',')}));}
+// The one-value close (the drawer): the expected amount is read from the store, since an employee at the till is blind to it.
+async function closeShift(t){const cash=await t.app.db.cashSummary();ok(await t.post('/api/shift/close',{counted:(cash.expectedCents/100).toFixed(2).replace('.',',')}));}
 const backup=async t=>ok(await t.post('/api/admin/backup/export'));
 const backupFile=(t,name)=>fs.readFileSync(path.join(t.home,'backups','manuais',name));
 const keyOf=t=>t.app.system.backups.keys.key();

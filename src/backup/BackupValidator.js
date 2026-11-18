@@ -85,7 +85,7 @@ class BackupValidator {
       await checkStructure(a,version);
       const before=await summarize(a);
       for(const [t,n] of Object.entries(manifest.summary?.counts||{}))
-        if(before.counts[t]!==n)fail(`A contagem de registros de ${t} não confere com o manifesto do backup.`,'corrompido');
+        if(before.counts[t]===undefined&&n===0)continue;else if(before.counts[t]!==n)fail(`A contagem de registros de ${t} não confere com o manifesto do backup.`,'corrompido');
       // Older backups are brought to the current schema here, on the copy, before anything is replaced.
       await migrateSqlite(a);await checkColumns(a);
       if(!(await integrityOk(a)))fail('O banco do backup não passou na verificação depois de atualizado.','corrompido');

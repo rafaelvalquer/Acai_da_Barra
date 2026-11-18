@@ -168,6 +168,7 @@
   <div class="card"><div class="card-title">Situação do turno</div><div id="cash-summary"></div><div class="hline"></div><div id="cash-open-sales"></div><div id="cash-controls"></div></div>
   <div class="card" id="cash-events-card"><div class="card-title">Movimentações do turno</div><div id="cash-events"></div></div>
  </div>
+ <div class="card hidden" id="closings-card"><div class="card-title">Fechamentos confirmados</div><div id="closings-list"></div></div>
 </section>
 
 <section id="produtos" class="panel hidden">
@@ -284,7 +285,21 @@
  </form>
 </dialog>
 
-<dialog id="manual-dialog" class="modal" aria-labelledby="manual-title">
+<dialog id="correct-dialog" class="modal" aria-labelledby="correct-title">
+ <form id="correct-form" novalidate>
+  <span class="modal-icon"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg></span>
+  <h2 id="correct-title">Corrigir conferência</h2>
+  <p>Informe os valores corretos de cada forma de pagamento. A conferência anterior continua guardada como revisão.</p>
+  <div class="grid2"><label>Dinheiro (R$)<input id="correct-cash" inputmode="decimal" autocomplete="off" placeholder="0,00"/></label><label>Pix (R$)<input id="correct-pix" inputmode="decimal" autocomplete="off" placeholder="0,00"/></label><label>Crédito (R$)<input id="correct-credit" inputmode="decimal" autocomplete="off" placeholder="0,00"/></label><label>Débito (R$)<input id="correct-debit" inputmode="decimal" autocomplete="off" placeholder="0,00"/></label></div>
+  <label class="modal-field"><span>Justificativa</span><input id="correct-reason" maxlength="180" autocomplete="off"/></label>
+  <label class="modal-field"><span>Senha do administrador</span><input id="correct-password" type="password" autocomplete="off"/></label>
+  <div class="modal-actions"><button type="submit" class="primary" id="correct-ok">Salvar correção</button><button type="button" class="secondary" id="correct-cancel">Voltar</button></div>
+ </form>
+</dialog>
+
+<pre id="print-area" aria-hidden="true"></pre>
+
+<dialog id="manual-dialog"class="modal" aria-labelledby="manual-title">
  <form id="manual-form" novalidate>
   <span class="modal-icon"><svg class="i" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
   <h2 id="manual-title">Lançamento manual</h2>

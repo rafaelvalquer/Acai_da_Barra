@@ -30,6 +30,7 @@ test('writes need the session token and requests must come from the local host',
 const active=async t=>(await t.get('/api/state')).body.activeSaleId;
 test('full flow: automatic weighing, product, payment and closing',async()=>{
  const t=await boot();try{
+  await t.db.setStrictBlind(false);
   await openWithOperator(t,'50,00');
   assert.equal((await t.post('/api/scale/demo')).status,200);
   await t.post('/api/scale/demo-weight',{grams:840});

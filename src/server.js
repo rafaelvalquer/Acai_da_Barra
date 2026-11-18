@@ -26,13 +26,17 @@ const GET_ROUTES={
   '/api/report':'reports.view',
   '/api/sales':'screen.historico',
   '/api/sales/detail':'screen.historico',
+  // The close's own report and history: who may read which close is decided inside (own closes, or the history permission).
+  '/api/shift/closings':'cash.reconciliation.view_confirmed','/api/shift/closings/report':'cash.reconciliation.view_confirmed','/api/shift/closings/print-status':'cash.reconciliation.view_confirmed',
+  '/api/shift/closings/revisions':'cash.reconciliation.view_revisions',
   '/api/scale/ports':'scale.manage'
 };
 const POST_ROUTES={
   '/api/config':'config.manage',
   '/api/operator':null,                    // tells who is signed in; never changes it
   '/api/employees/save':'employees.manage','/api/employees/remove':'employees.manage',
-  '/api/shift/open':'cash.open','/api/shift/move':'cash.move','/api/shift/close':'cash.close',
+  '/api/shift/open':'cash.open','/api/shift/move':'cash.move','/api/shift/close':'cash.close','/api/shift/close/begin':'cash.close',
+  '/api/shift/closings/print':'cash.reconciliation.view_confirmed','/api/shift/closings/reopen':'cash.reconciliation.reopen','/api/shift/closings/correct':'cash.reconciliation.correct',
   '/api/products/save':'products.manage','/api/products/favorite':'products.manage','/api/products/remove':'products.manage',
   '/api/open-sales/create':'sales.create','/api/open-sales/select':'sales.create','/api/open-sales/rename':'sales.create',
   '/api/open-sales/discard':'sales.discard','/api/open-sales/transfer-item':'sales.transfer',
@@ -46,8 +50,9 @@ const POST_ROUTES={
 // What the till screen receives: only what this person may see, computed from the state the store keeps (never
 // changed here: every part is a new object).
 function visibleState(state,identity,{brief}){
+  const strict={strict:state.strictBlind!==false};
   const can=p=>Authz.hasPermission(identity,p);const selling=can('screen.vendas');
-  return {config:state.config,cash:Policy.cash(state.cash,identity),
+  return {config:state.config,cash:Policy.cash(state.cash,identity,strict),
     openSales:selling||can('screen.caixa')?state.openSales:[],activeSaleId:selling?state.activeSaleId:null,activeSale:selling?state.activeSale:null,
     cart:selling?state.cart:[],cartTotalCents:selling?state.cartTotalCents:0,
     products:selling||can('products.view')||can('products.manage')?state.products:[],
@@ -61,7 +66,7 @@ function visibleState(state,identity,{brief}){
 // demo): the Admin area (/api/admin/*), backups, maintenance pauses.
 // simulator: the scale simulator (/api/scale/demo*): 'off' (default), 'admin' (only with scale.manage; set
 // PDV_SCALE_SIMULATOR=true to try the till without a scale) or 'open' (the online demo and the tests).
-function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE_SIMULATOR==='true'?'admin':'off'}){
+function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE_SIMULATOR==='true'?'admin':'off',printing=null}){
   if(!auth||typeof auth.identify!=='function')throw Error('O servidor do PDV precisa da autenticação do caixa.');
   const PosAuthView=auth.constructor.view||auth.view;const actorOf=auth.constructor.actor||auth.actor;
   const token=randomBytes(24).toString('hex');let lastAutoError='';
@@ -81,6 +86,7 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
   // The weighing destination only changes with nothing on the plate, so a cup placed for one customer can't
   // finish its weighing in another customer's sale.
   function guardSwitch(){if(!scale.idle())throw Error('Retire o produto da balança para trocar de venda.');}
+  printing=system?.printing||printing;
   const maintenance=()=>system?.maintenance?.()||null;
   const audit=e=>Promise.resolve(auth.audit?.(e)).catch(()=>{});
   const who=identity=>identity.kind==='admin'?identity.username:identity.name;
@@ -131,6 +137,87 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
     if(pathname==='/api/auth/lock'){const r=await auth.lock(req);return send(res,200,{ok:true,result:{session:r.session}},cookies(r.cookies));}
     return fail(res,404,'Operação não encontrada');
   }
+  // —— the close's report, history and printing ——
+  // A refused read or print of a close: logged (once a minute per person and permission) and answered with 403.
+  function need(identity,permission,route){
+    if(Authz.hasPermission(identity,permission))return;
+    denied(identity,permission,route);throw Authz.httpError(403,Authz.DENIED,{permission,needsAdmin:true});
+  }
+  // Whether this person may read this close: the administrator always; someone with the report permission only the
+  // close of their own shift, or any close with the history permission. Superseded revisions and a close under
+  // correction are for those who may see the revisions.
+  function mayRead(identity,rec,route){
+    if(identity.kind==='admin')return true;
+    need(identity,'cash.reconciliation.view_confirmed',route);
+    const own=rec.closedByEmployeeId!==null&&rec.closedByEmployeeId===identity.employeeId;
+    if(!own&&!Authz.hasPermission(identity,'cash.view_history')){denied(identity,'cash.view_history',route);throw Authz.httpError(403,Authz.DENIED,{permission:'cash.view_history',needsAdmin:true});}
+    if((rec.status==='REOPENED'||rec.superseded)&&!seesRevisions(identity))
+      throw Authz.httpError(409,rec.superseded?'Esta é uma versão substituída por uma correção. Peça ao administrador.':'Este fechamento está em correção pelo administrador.',{reopened:true});
+    return true;
+  }
+  const seesRevisions=identity=>Authz.hasPermission(identity,'cash.reconciliation.view_revisions');
+  // The reason of a reopening or correction is for those who may see the revisions.
+  function shape(identity,rec){
+    if(seesRevisions(identity))return rec;
+    const {reopen,correctionReason,correctedBy,...rest}=rec;return rest;
+  }
+  async function loadClosing(identity,route,q){
+    const rec=await db.getConfirmedReport({shiftId:q.shiftId,revision:q.revision||null});
+    mayRead(identity,rec,route);return rec;
+  }
+  async function closingsList(identity,route){
+    if(identity.kind!=='admin')need(identity,'cash.reconciliation.view_confirmed',route);
+    const all=identity.kind==='admin'||Authz.hasPermission(identity,'cash.view_history');
+    const rows=await db.listClosings({employeeId:all?null:identity.employeeId});
+    const open=seesRevisions(identity)||identity.kind==='admin';
+    return {closings:rows.map(r=>open?r:{...r,reopened:false,status:r.status==='REOPENED'?'CONFIRMED':r.status})};
+  }
+  async function closingReport(identity,route,q){
+    const rec=await loadClosing(identity,route,q);
+    return {report:shape(identity,rec),print:await printInfo(identity,rec)};
+  }
+  const printJob=j=>({kind:j.kind,status:j.status,requestedAt:j.requested_at,submittedAt:j.submitted_at,attempts:j.attempts,lastError:j.last_error,ambiguous:j.ambiguous,requestedBy:j.requested_by,printer:j.printer,auto:j.auto});
+  async function printInfo(identity,rec){
+    if(!printing)return {available:false};
+    const canPrint=Authz.hasPermission(identity,'cash.reconciliation.print'),canReprint=Authz.hasPermission(identity,'cash.reconciliation.reprint');
+    const s=await printing.getSettings();const jobs=canPrint||canReprint?await printing.jobsFor(rec.uuid):[];
+    return {available:true,configured:s.transport==='browser'||!!s.printerName,transport:s.transport,autoPrint:s.autoPrint,canPrint,canReprint,jobs:jobs.map(printJob)};
+  }
+  async function printStatus(identity,route,q){
+    if(!Authz.hasPermission(identity,'cash.reconciliation.print')&&!Authz.hasPermission(identity,'cash.reconciliation.reprint'))need(identity,'cash.reconciliation.print',route);
+    return printInfo(identity,await loadClosing(identity,route,q));
+  }
+  async function printClosing(identity,route,b,name){
+    if(!printing)throw Authz.httpError(501,'A impressão não está disponível nesta versão.');
+    const reprint=b.reprint===true;need(identity,reprint?'cash.reconciliation.reprint':'cash.reconciliation.print',route);
+    const rec=await loadClosing(identity,route,{shiftId:b.shiftId,revision:b.revision});
+    // What goes on paper: the close as saved, without the administrator's notes for someone who may not see them.
+    const out=await printing.printClosing(shape(identity,rec),{by:name,reprint,confirmDuplicate:b.confirmDuplicate===true});
+    return {print:{ok:out.ok!==false,status:out.status||'SUBMITTED',message:out.message||null,ambiguous:!!out.ambiguous,mode:out.mode||'spooler',text:out.mode==='browser'?out.text:undefined},jobs:(await printing.jobsFor(rec.uuid)).map(printJob)};
+  }
+  // After the commit: the report for whoever may read it, and the automatic print if it is on. A printing problem never
+  // undoes the close: it is only reported.
+  async function closeAnswer(identity,r,name){
+    const rec=r.reconciliation;
+    if(!r.duplicate){
+      if(system)system.afterShiftClose();
+      await audit({username:name,action:'conferencia_confirmada',detail:{turno:rec.shiftId,revisao:rec.revision,informadoCentavos:Object.fromEntries(rec.items.map(i=>[i.method,i.countedCents])),
+        diferencaCentavos:Object.fromEntries(rec.items.map(i=>[i.method,i.differenceCents])),diferencaTotalCentavos:rec.totals.differenceCents}});
+      await audit({username:name,action:'caixa_fechado',detail:{turno:rec.shiftId,situacao:rec.totals.status}});
+    }
+    const seesReport=identity.kind==='admin'||Authz.hasPermission(identity,'cash.reconciliation.view_confirmed');
+    const out={shiftId:rec.shiftId,confirmed:true,duplicate:r.duplicate,blind:!seesReport,report:seesReport?shape(identity,rec):null,print:null};
+    if(!r.duplicate&&printing&&seesReport){
+      try{
+        const s=await printing.getSettings();
+        if(s.autoPrint&&Authz.hasPermission(identity,'cash.reconciliation.print')){
+          const p=await printing.printClosing(shape(identity,rec),{by:name,auto:true});
+          out.print={ok:p.ok!==false,status:p.status||'SUBMITTED',message:p.message||null,ambiguous:!!p.ambiguous,mode:p.mode||'spooler',text:p.mode==='browser'?p.text:undefined,auto:true};
+        }
+      }catch(e){out.print={ok:false,status:'FAILED',message:e.message,auto:true};}
+    }
+    return out;
+  }
   async function router(req,res){
     const url=new URL(req.url,`http://${HOST}`);const pathname=url.pathname;const q=Object.fromEntries(url.searchParams);
     if(req.method==='GET' && pathname==='/')return serve(res,'index.html');
@@ -155,18 +242,23 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
           // Whether this person may use the scale simulator (the card on the Balança screen).
           simulator:simulator==='open'||(simulator==='admin'&&can('scale.manage'))});
         case '/api/open-sales':return send(res,200,{activeSaleId:await db.activeSaleId(),sales:await db.listDraftSales()});
-        case '/api/report':return send(res,200,Policy.report(await db.report({period:q.period,date:q.date}),identity));
+        case '/api/report':return send(res,200,Policy.report(await db.report({period:q.period,date:q.date}),identity,{strict:await db.strictBlind()}));
         case '/api/sales':{
           const filter={q:q.q,from:q.from,to:q.to,status:q.status};
           // Without the reports, only the sales of the open shift.
           if(!can('reports.view'))filter.onlyShift=(await db.shift())?.id||0;
-          return send(res,200,await db.salesHistory(filter));
+          const history=await db.salesHistory(filter);
+          return send(res,200,filter.onlyShift!==undefined?Policy.salesOfShift(history,identity,{strict:await db.strictBlind()}):history);
         }
         case '/api/sales/detail':{
           const d=await db.saleDetail(q.id);
           if(!can('reports.view')&&d.shift_id!==(await db.shift())?.id){denied(identity,'reports.view',pathname);throw Authz.httpError(403,Authz.DENIED,{permission:'reports.view',needsAdmin:true});}
-          return send(res,200,d);
+          return send(res,200,can('reports.view')?d:Policy.salesOfShift(d,identity,{strict:await db.strictBlind()}));
         }
+        case '/api/shift/closings':return send(res,200,await closingsList(identity,pathname));
+        case '/api/shift/closings/report':return send(res,200,await closingReport(identity,pathname,q));
+        case '/api/shift/closings/revisions':return send(res,200,await db.getRevisions({shiftId:q.shiftId}));
+        case '/api/shift/closings/print-status':return send(res,200,await printStatus(identity,pathname,q));
         case '/api/scale/ports':try{return send(res,200,{ports:await scale.ports()});}catch(e){return fail(res,400,e.message);}
       }
     }
@@ -187,14 +279,36 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
       case '/api/employees/remove':result=await store.removeEmployee(b.id);await auth.employeeDeactivated?.(b.id);break;
       case '/api/shift/open':result=await store.openShift(b.opening);await audit({username:name,action:'caixa_aberto',detail:{turno:result?.id}});break;
       case '/api/shift/move':{
-        const blind=!Policy.seesExpected(identity);const summary=await store.moveCash(b.kind,b.amount,b.note,{blind});
+        const blind=!Policy.seesExpected(identity,{strict:await db.strictBlind()});const summary=await store.moveCash(b.kind,b.amount,b.note,{blind});
         await audit({username:name,action:b.kind==='withdrawal'?'sangria':'suprimento',detail:{turno:summary.shift?.id,valorCentavos:readCents(b.amount),descricao:String(b.note||'').trim().slice(0,180)}});
         result=Policy.moveResult(summary,identity);break;
       }
       case '/api/shift/close':{
+        // The full count: the four typed amounts. A single value is the old one-value close (compatibility).
+        if(b.counted!==null&&typeof b.counted==='object'){
+          need(identity,'cash.reconciliation.confirm',pathname);
+          const r=await store.closeShift(b.counted,{shiftId:b.shiftId,idempotencyKey:b.idempotencyKey});
+          result=await closeAnswer(identity,r,name);break;
+        }
+        need(identity,'cash.reconciliation.confirm',pathname);
         const r=await store.closeShift(b.counted,{shiftId:b.shiftId});if(system)system.afterShiftClose();
         await audit({username:name,action:'caixa_fechado',detail:{turno:r.shiftId,situacao:r.status}});
-        result=Policy.closeResult(r,identity);break;
+        result=Policy.closeResult(r,identity,{strict:await db.strictBlind()});break;
+      }
+      case '/api/shift/close/begin':{need(identity,'cash.reconciliation.confirm',pathname);result=await store.beginClose({shiftId:b.shiftId});await audit({username:name,action:'conferencia_iniciada',detail:{turno:result.shiftId}});break;}
+      case '/api/shift/closings/print':result=await printClosing(identity,pathname,b,name);break;
+      case '/api/shift/closings/reopen':{
+        Authz.requireAdmin(identity);await auth.confirmAdminPassword(identity,b.password);
+        const r=await store.requestReopen({shiftId:b.shiftId,reason:b.reason});
+        await audit({username:name,action:'conferencia_reaberta',detail:{turno:r.shiftId,revisao:r.revision,motivo:String(b.reason||'').trim().slice(0,300)}});
+        result={shiftId:r.shiftId,reconciliation:r.reconciliation};break;
+      }
+      case '/api/shift/closings/correct':{
+        Authz.requireAdmin(identity);await auth.confirmAdminPassword(identity,b.password);
+        const r=await store.confirmCorrection({shiftId:b.shiftId,idempotencyKey:b.idempotencyKey,counted:b.counted,reason:b.reason});
+        if(!r.duplicate)await audit({username:name,action:'conferencia_corrigida',detail:{turno:r.reconciliation.shiftId,revisao:r.reconciliation.revision,motivo:String(b.reason||'').trim().slice(0,300),
+          valoresAnterioresCentavos:r.previousCounted,valoresNovosCentavos:Object.fromEntries(r.reconciliation.items.map(i=>[i.method,i.countedCents])),diferencaTotalCentavos:r.reconciliation.totals.differenceCents}});
+        result={duplicate:r.duplicate,reconciliation:r.reconciliation};break;
       }
       case '/api/products/save':{
         const before=b.id?(await db.listProducts()).find(p=>p.id===Number(b.id)):null;result=await store.product(b);
