@@ -186,6 +186,13 @@ if (-not $reparar -and (Test-Path $banco)) {
   # The program that knows this database makes the backup: the installed one, or the new one on a first install.
   $cli = if ($instalado -and (Test-Path (Join-Path $Destino 'src\cli\backup.js'))) { Join-Path $Destino 'src\cli\backup.js' } else { Join-Path $Novo 'src\cli\backup.js' }
   & $node $cli --tipo atualizacao | Out-Host
+  # Data already on a newer schema (the new program was started on it before) is unreadable for the installed program:
+  # the new one knows every version, so it makes the backup then.
+  $novoCli = Join-Path $Novo 'src\cli\backup.js'
+  if ($LASTEXITCODE -ne 0 -and $cli -ne $novoCli -and (Test-Path $novoCli)) {
+    Aviso 'O programa instalado não conseguiu ler os dados (versão mais nova). Tentando o backup com a nova versão.'
+    & $node $novoCli --tipo atualizacao | Out-Host
+  }
   if ($LASTEXITCODE -ne 0) {
     Retomar-Anterior
     Falha 'o backup antes da atualização não foi feito (veja a mensagem acima). Nada foi alterado e a versão atual continua em uso.'
