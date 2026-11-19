@@ -409,7 +409,6 @@ function printerCard(){
  const opt=(v,l,sel)=>`<option value="${safe(v)}" ${sel?'selected':''}>${safe(l)}</option>`;
  const fails=(o.failures||[]).slice(0,5);
  return `<div class="card"><div class="card-title"><span>Impressora de fechamento</span>${icon('sliders')}</div>
-  ${notice('Aguardando homologação física na Elgin i9: o envio pela fila do Windows foi testado só com impressora simulada. Faça o teste de impressão antes de ligar a impressão automática.','warn','alert')}
   <p class="minor">Situação: <strong>${safe(o.status&&o.status.label||'—')}</strong>${o.account&&o.account.user?` · conta do PDV: ${safe(o.account.user)}`:''}</p>
   <form class="form" data-form="printer-save">
    <label>Impressora (fila do Windows)<input name="printerName" list="printer-names" value="${safe(st.printerName)}" maxlength="120"/></label><datalist id="printer-names">${names.map(n=>`<option value="${safe(n)}">`).join('')}</datalist>
