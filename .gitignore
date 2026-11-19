@@ -3,3 +3,8 @@ data/*.sqlite*
 .DS_Store
 dist/
 .netlify/
+
+# Local, fora do git (base-importacao tem a chave de recuperação)
+.claude/
+apresentacao/
+base-importacao/
