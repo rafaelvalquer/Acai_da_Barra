@@ -38,7 +38,10 @@ function readMoney(input) {
     input=String(input);
   }
   if (typeof input !== 'string') throw Error('Valor monetário inválido');
-  const match = input.trim().replace(/^R\$\s*/, '').match(/^(\d{1,6})(?:[.,](\d{1,2}))?$/);
+  // With or without thousands dots: 1250,50 and 1.250,50 are the same; "1.250" is 1250 (groups of three), "12.9" and "64.90" stay decimals.
+  let text = input.trim().replace(/^R\$\s*/, '');
+  if (/^[1-9]\d{0,2}(\.\d{3})+(,\d{1,2})?$/.test(text)) text = text.replace(/\./g, '');
+  const match = text.match(/^(\d{1,6})(?:[.,](\d{1,2}))?$/);
   if (!match) throw Error('Use valor como 64,90');
   return Number(match[1]) * 100 + Number((match[2] || '').padEnd(2,'0'));
 }

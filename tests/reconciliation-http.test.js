@@ -123,3 +123,12 @@ test('the history lists each person\'s own closes; with the history permission a
     assert.equal((await t.get(`/api/shift/closings/report?shiftId=${first}`,g)).status,200);
   }finally{await t.close();}
 });
+
+test('the close accepts amounts with or without the thousands dot, and large withdrawals are free',async()=>{
+  const t=await tillOf();try{
+    const c=await t.signIn('Carla',DEFAULTS);const shiftId=await shiftWithSales(t,c,{opening:'1.000,00'});
+    ok(await t.post('/api/shift/move',{kind:'withdrawal',amount:'1.250,00',note:'cofre'},c));
+    const r=ok(await t.post('/api/shift/close',{shiftId,idempotencyKey:key(),counted:counted('1.250,50','1250,00','1.000','0')},c));
+    assert.deepEqual(r.report.items.map(i=>i.countedCents),[125050,125000,100000,0]);
+  }finally{await t.close();}
+});

@@ -19,7 +19,7 @@ test('every route of the till has a permission, and only routes of the catalog e
   const known=new Set(CATALOG.map(p=>p.id));
   for(const [route,p] of Object.entries({...GET_ROUTES,...POST_ROUTES}))assert.ok(p===null||p==='simulator'||known.has(p),`${route}: ${p}`);
   // Only the state and "who am I" need just a session; everything else names its permission.
-  assert.deepEqual(Object.entries({...GET_ROUTES,...POST_ROUTES}).filter(([,p])=>p===null).map(([r])=>r).sort(),['/api/operator','/api/state']);
+  assert.deepEqual(Object.entries({...GET_ROUTES,...POST_ROUTES}).filter(([,p])=>p===null).map(([r])=>r).sort(),['/api/operator','/api/shift/move','/api/state']);
 });
 
 test('P01 the menu shows only the allowed screens; P02 a closed screen refuses its endpoints',async()=>{

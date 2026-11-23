@@ -35,7 +35,8 @@ const POST_ROUTES={
   '/api/config':'config.manage',
   '/api/operator':null,                    // tells who is signed in; never changes it
   '/api/employees/save':'employees.manage','/api/employees/remove':'employees.manage',
-  '/api/shift/open':'cash.open','/api/shift/move':'cash.move','/api/shift/close':'cash.close','/api/shift/close/begin':'cash.close',
+  '/api/shift/open':'cash.open','/api/shift/move':null,                  // sangria e suprimento: qualquer pessoa no caixa; fica registrado quem fez
+  '/api/shift/close':'cash.close','/api/shift/close/begin':'cash.close',
   '/api/shift/closings/print':'cash.reconciliation.view_confirmed','/api/shift/closings/reopen':'cash.reconciliation.reopen','/api/shift/closings/correct':'cash.reconciliation.correct',
   '/api/products/save':'products.manage','/api/products/favorite':'products.manage','/api/products/remove':'products.manage',
   '/api/open-sales/create':'sales.create','/api/open-sales/select':'sales.create','/api/open-sales/rename':'sales.create',
@@ -280,7 +281,7 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
       case '/api/employees/remove':result=await store.removeEmployee(b.id);await auth.employeeDeactivated?.(b.id);break;
       case '/api/shift/open':result=await store.openShift(b.opening);await audit({username:name,action:'caixa_aberto',detail:{turno:result?.id}});break;
       case '/api/shift/move':{
-        const blind=!Policy.seesExpected(identity,{strict:await db.strictBlind()});const summary=await store.moveCash(b.kind,b.amount,b.note,{blind});
+        const summary=await store.moveCash(b.kind,b.amount,b.note);
         await audit({username:name,action:b.kind==='withdrawal'?'sangria':'suprimento',detail:{turno:summary.shift?.id,valorCentavos:readCents(b.amount),descricao:String(b.note||'').trim().slice(0,180)}});
         result=Policy.moveResult(summary,identity);break;
       }

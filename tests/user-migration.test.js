@@ -22,7 +22,7 @@ const openSales=async s=>{const st=await s.readState();return {list:st.openSales
 
 test('v5 → v6 keeps the open shift, the open sales and their items, and gives nobody a permission or a PIN',async()=>{
   const box=await tempStore('luminor-v6-');try{
-    let s=box.s;assert.equal(SCHEMA_VERSION,8);
+    let s=box.s;assert.equal(SCHEMA_VERSION,9);
     const ana=(await s.saveEmployee({name:'Ana'})).id;await s.saveEmployee({name:'Bruno'});await s.openShift('100,00',ana);
     const a=await s.activeSaleId();await s.addManualWeight(a,'0,500');
     const water=(await s.product({name:'Água',price:'5,00',stock:10})).id;const b=(await s.createDraftSale()).id;await s.addUnit(b,water,2);

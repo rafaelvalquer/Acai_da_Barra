@@ -1,6 +1,5 @@
 'use strict';
 const {readMoney}=require('../protocol');const {assert,now,emptyMethods}=require('./util');const {randomUUID}=require('node:crypto');
-const DEFAULT_BLIND_LIMIT=20000;
 // Counted minus expected, in words: what an operator without access to the balance sees of the close.
 const closeStatus=d=>d<0?'FALTA':d>0?'SOBRA':'CONFERIDO';
 // Shift opening, cash supplies and withdrawals, the expected drawer amount and the closing count.
@@ -18,12 +17,10 @@ class CashService {
   // blind: whoever does it may not see the drawer balance (src/auth/CashVisibilityPolicy.js). Then a withdrawal is
   // checked against a fixed limit set by the administrator, never against the balance: refusing "more than there is"
   // would let anyone find the balance by trying amounts.
-  async moveCash(kind,amount,note='',{blind=false}={}){
+  async moveCash(kind,amount,note=''){
     const {ctx}=this;const shift=await this.shift();assert(shift,'Abra o caixa antes de realizar movimentações');const op=await ctx.employees.requireOperator();
     assert(['supply','withdrawal'].includes(kind),'Movimentação inválida');
     const cents=readMoney(amount);assert(cents>0,'Valor deve ser positivo');
-    if(kind==='withdrawal'&&blind)assert(cents<=await this.blindWithdrawalLimit(),'Sangria acima do limite permitido sem conferência. Peça ao administrador.');
-    else if(kind==='withdrawal')assert(cents<=(await this.cashSummary()).expectedCents,'Sangria maior que o dinheiro em caixa');
     await ctx.r.cash.insertEvent({shiftId:shift.id,kind,amountCents:cents,note:String(note).slice(0,180),createdAt:now(),operatorId:op.id});
     return this.cashSummary();
   }
@@ -42,12 +39,10 @@ class CashService {
     return {shift:{...shift,opened_by_name:opener?.name||null},expectedCents:shift.opening_cents+t.methods.cash+t.suppliesCents-t.withdrawalsCents,cashSalesCents:t.methods.cash,...t,events};
   }
   // Never set (or unreadable): the default. An empty setting is not "zero".
-  async blindWithdrawalLimit(r=this.ctx.r){const raw=await r.settings.get('blind_withdrawal_limit_cents');const v=raw===null||raw===undefined||String(raw).trim()===''?NaN:Number(raw);return Number.isSafeInteger(v)&&v>=0?v:DEFAULT_BLIND_LIMIT;}
   // Whether an employee is blind to the open shift's totals whatever "cash.view_expected" they were given long ago
   // (src/auth/CashVisibilityPolicy.js). On unless the administrator turned it off.
   async strictBlind(r=this.ctx.r){return (await r.settings.get('strict_blind'))!=='0';}
   async setStrictBlind(on){assert(typeof on==='boolean','Opção inválida');await this.ctx.r.settings.set('strict_blind',on?'1':'0');return on;}
-  async setBlindWithdrawalLimit(amount){const cents=readMoney(amount);assert(cents>=0&&cents<=10000000,'Limite inválido');await this.ctx.r.settings.set('blind_withdrawal_limit_cents',cents);return cents;}
   // The close is the count of the four payment methods (src/services/ReconciliationService.js): counted is
   // {cash,pix,credit,debit}, with the shift it was typed for and the idempotencyKey the screen made for this close.
   // A single value (the close of before: only the drawer was counted) is still accepted: the other three methods are
@@ -62,4 +57,4 @@ class CashService {
     return {shiftId:r.reconciliation.shiftId,...r.legacy,reconciliation:r.reconciliation,duplicate:r.duplicate};
   }
 }
-module.exports={CashService,closeStatus,DEFAULT_BLIND_LIMIT};
+module.exports={CashService,closeStatus};

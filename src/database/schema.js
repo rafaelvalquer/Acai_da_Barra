@@ -2,7 +2,7 @@
 // The PDV tables, in an order where every reference points to a table listed before it. Used to copy data between
 // databases (backup, restore, migration to PostgreSQL) and to check that a backup has the expected structure.
 // since: the schema version that created the table (absent: there from the start).
-const SCHEMA_VERSION=8;
+const SCHEMA_VERSION=9;
 const TABLES=[
   {name:'settings',key:'k',columns:['k','v']},
   {name:'employees',key:'id',identity:true,columns:['id','uuid','name','active','created_at']},

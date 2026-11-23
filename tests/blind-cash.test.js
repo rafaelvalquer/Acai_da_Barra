@@ -102,40 +102,31 @@ test('C08 a shift is closed once: a second close (double click, an old screen) i
   }finally{await t.close();}
 });
 
-test('C09 cash movements need "cash.move"; without the balance a withdrawal has a fixed limit',async()=>{
+test('C09 sangria e suprimento são livres para qualquer pessoa no caixa, sem limite, e ficam registrados',async()=>{
   const t=await blindTill();try{
-    let c=await t.signIn('Carla',DEFAULTS);await shiftOf250(t,c);
-    const r=await t.post('/api/shift/move',{kind:'withdrawal',amount:'10,00',note:'cofre'},c);assert.equal(r.status,403);
-    assert.equal(r.body.error,DENIED);assert.equal((await t.db.cashSummary()).events.length,0);
-    // Allowed to move cash, but not to see the balance: up to R$ 200,00 per withdrawal (the default), and the answer
-    // is the blind panel.
-    assert.equal(await t.db.blindWithdrawalLimit(),20000);
-    c=await t.signIn('Carla',[...DEFAULTS,'cash.move']);
-    const moved=ok(await t.post('/api/shift/move',{kind:'withdrawal',amount:'30,00',note:'cofre'},c));
-    assert.equal(moved.blind,true);noBalance(moved,[22000,25000]);assert.equal(moved.events.length,1);
+    // Sem nenhuma permissão extra: quem está no caixa pode registrar, e o painel segue cego.
+    const c=await t.signIn('Carla',DEFAULTS);await shiftOf250(t,c);
+    const moved=ok(await t.post('/api/shift/move',{kind:'withdrawal',amount:'1.250,00',note:'cofre'},c));
+    assert.equal(moved.blind,true);noBalance(moved,[22000,25000]);assert.equal(moved.events.length,1);assert.equal(moved.events[0].amount_cents,125000);assert.equal(moved.events[0].operator_name,'Carla');
     ok(await t.post('/api/shift/move',{kind:'supply',amount:'5,00',note:'troco'},c));
-    const over=await t.post('/api/shift/move',{kind:'withdrawal',amount:'200,01',note:'tudo'},c);
-    assert.equal(over.status,400);assert.match(over.body.error,/limite permitido sem conferência/);
-    const a=t.pos.audits.filter(x=>x.action==='sangria');assert.equal(a.length,1);assert.deepEqual(a[0].detail,{turno:moved.shift.id,valorCentavos:3000,descricao:'cofre'});
-    // The administrator changes the limit.
-    await t.db.setBlindWithdrawalLimit('50,00');assert.equal(await t.db.blindWithdrawalLimit(),5000);
-    assert.equal((await t.post('/api/shift/move',{kind:'withdrawal',amount:'60,00',note:'x'},c)).status,400);
+    ok(await t.post('/api/shift/move',{kind:'withdrawal',amount:'300,00'},c));
+    // Rastreabilidade: quem, o quê, quanto e a descrição.
+    const a=t.pos.audits.filter(x=>x.action==='sangria');assert.equal(a.length,2);assert.deepEqual(a[0].detail,{turno:moved.shift.id,valorCentavos:125000,descricao:'cofre'});assert.equal(a[0].username,'Carla');
+    assert.equal(t.pos.audits.filter(x=>x.action==='suprimento').length,1);
+    // Erros de formato continuam, sem revelar saldo.
+    const bad=await t.post('/api/shift/move',{kind:'withdrawal',amount:'x'},c);assert.equal(bad.status,400);noBalance(bad.body,[-15000,15000,0]);
   }finally{await t.close();}
 });
 
 test('C10 errors never reveal the expected balance, and a withdrawal does not work as a balance oracle',async()=>{
   const t=await blindTill({legacy:true});try{
-    const c=await t.signIn('Carla',[...DEFAULTS,'cash.move']);
-    // An empty drawer: R$ 0,00 opening, no sales.
+    const c=await t.signIn('Carla',DEFAULTS);
     ok(await t.post('/api/shift/open',{opening:'0,00'},c));
-    // Within the limit the answer does not depend on the money in the drawer (it would tell the balance).
+    // A resposta não depende do dinheiro na gaveta (gaveta vazia aceita a mesma sangria).
     const w=await t.post('/api/shift/move',{kind:'withdrawal',amount:'150,00',note:'teste'},c);assert.equal(w.status,200);noBalance(w.body,[-15000]);
-    for(const [p,body] of [['/api/shift/close',{counted:'abc'}],['/api/shift/close',{counted:'-5,00'}],['/api/shift/move',{kind:'withdrawal',amount:'999,00'}],['/api/shift/move',{kind:'withdrawal',amount:'x'}]]){
+    for(const [p,body] of [['/api/shift/close',{counted:'abc'}],['/api/shift/close',{counted:'-5,00'}],['/api/shift/move',{kind:'withdrawal',amount:'x'}]]){
       const r=await t.post(p,body,c);assert.notEqual(r.status,200,p);noBalance(r.body,[-15000,15000,0]);
-      assert.ok(!/esperado|saldo|em caixa/i.test(r.body.error)||/limite/.test(r.body.error),r.body.error);
+      assert.ok(!/esperado|saldo|em caixa/i.test(r.body.error),r.body.error);
     }
-    // For whoever sees the balance, the drawer limit applies as before.
-    const b=await t.signIn('Bruno',[...DEFAULTS,'cash.move','cash.view_expected']);
-    const r=await t.post('/api/shift/move',{kind:'withdrawal',amount:'1,00',note:'x'},b);assert.equal(r.status,400);assert.match(r.body.error,/maior que o dinheiro em caixa/);
   }finally{await t.close();}
 });

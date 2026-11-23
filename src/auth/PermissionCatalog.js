@@ -28,7 +28,6 @@ const ACTIONS=[
   {id:'sales.manual_value',group:'Vendas',label:'Digitar um valor fechado',default:false,critical:true},
   {id:'cash.open',group:'Caixa',label:'Abrir o caixa',default:true},
   {id:'cash.close',group:'Caixa',label:'Fechar o caixa (contagem do dinheiro)',default:true},
-  {id:'cash.move',group:'Caixa',label:'Registrar sangria e suprimento',default:false,critical:true},
   {id:'cash.view_expected',group:'Caixa',label:'Ver o saldo esperado e a diferença exata do fechamento',default:false,critical:true,
     note:'Sem esta permissão o fechamento é cego: o funcionário vê só Conferido, Falta ou Sobra.'},
   {id:'cash.view_history',group:'Caixa',label:'Ver as movimentações do turno e o histórico de fechamentos',default:false,critical:true},

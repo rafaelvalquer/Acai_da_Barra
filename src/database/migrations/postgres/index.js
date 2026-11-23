@@ -75,7 +75,9 @@ const MIGRATIONS=[
       await q.run('INSERT INTO sale_payments(uuid,sale_id,method,amount_cents,received_cents,change_cents,created_at) VALUES(?,?,?,?,?,?,?)',
         [require('node:crypto').randomUUID(),s.id,s.method,s.total_cents,cash?s.received_cents:null,cash?s.received_cents-s.total_cents:null,s.created_at]);
     }
-  }}
+  }},
+  // Same as SQLite step 9: the expected amount of a method may be negative (withdrawals are free).
+  {version:9,sql:`ALTER TABLE shift_reconciliation_items DROP CONSTRAINT IF EXISTS shift_reconciliation_items_expected_cents_check;`}
 ];
 const LAST=MIGRATIONS[MIGRATIONS.length-1].version;
 // until: stops at that version (used by the tests to build a database of an older version).

@@ -10,6 +10,10 @@ test('parser accepts fragmented frames and multiple frames',()=>{
  const found=[];const p=new Prt5Parser(x=>found.push(x));p.push(Buffer.from([0x00,0x02,0x30,0x30,0x38]));p.push(Buffer.from([0x34,0x30,0x03,0x02,0x49,0x49,0x49,0x49,0x49,0x03]));
  assert.deepEqual(found,[{status:'stable',grams:840},{status:'unstable',grams:null}]);
 });
+test('money with or without thousands dots',()=>{
+ for(const [text,cents] of [['1250',125000],['1250,50',125050],['1.250,50',125050],['1.250',125000],['12.250,00',1225000],['R$ 1.250,00',125000],['999.999,99',99999999],['64.90',6490],['12.9',1290],['0,5',50]])assert.equal(readMoney(text),cents,text);
+ for(const bad of ['1,000.00','01.250','1.25.0','1..250','1.2500','1.250,','-1.250,00','1.000.000,00','abc'])assert.throws(()=>readMoney(bad),bad);
+});
 test('price in BRL and rounding',()=>{
  assert.equal(readMoney('64,90'),6490);assert.equal(readMoney('5'),500);assert.equal(readMoney('12.9'),1290);
  assert.equal(calcTotal(840,6490),5452);assert.equal(calcTotal(420,6490),2726);

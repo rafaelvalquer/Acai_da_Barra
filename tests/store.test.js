@@ -117,11 +117,11 @@ test('closing the shift checks open sales, computes the difference and blocks ne
   const shifts=(await s.report()).shifts;assert.equal(shifts.length,2);assert.equal(shifts[1].difference_cents,-500);assert.equal(shifts[1].closed_by_name,'Ana');
  }finally{await f.clean();}
 });
-test('withdrawal cannot exceed the cash in the drawer',async()=>{
+test('withdrawal has no limit and is recorded with the operator',async()=>{
  const f=await fixture();const s=f.db;try{
   await s.openShift('20,00',f.op);
-  await assert.rejects(async()=>await s.moveCash('withdrawal','20,01','cofre'),/maior que o dinheiro/);
-  await s.moveCash('withdrawal','20,00','cofre');assert.equal((await s.cashSummary()).expectedCents,0);
+  await s.moveCash('withdrawal','20,01','cofre');assert.equal((await s.cashSummary()).expectedCents,-1);
+  await s.moveCash('withdrawal','20,00','cofre');assert.equal((await s.cashSummary()).expectedCents,-2001);
   const ev=(await s.cashSummary()).events[0];assert.equal(ev.operator_name,'Ana');
  }finally{await f.clean();}
 });

@@ -48,7 +48,7 @@ class AdminApi {
         case 'audit':return send(res,200,await sys.adminStore.recentAudit(80));
         // Users and permissions: the employees of the commercial database, their access at the till and the catalog.
         case 'operators':return send(res,200,{operators:await sys.pos.operators.listOperators(),catalog:catalogView(),
-          settings:{blindWithdrawalLimitCents:await sys.db.blindWithdrawalLimit(),strictBlind:await sys.db.strictBlind()}});
+          settings:{strictBlind:await sys.db.strictBlind()}});
         // The closing report printer of this computer: settings, what Windows shows, the last failures.
         case 'printers':return send(res,200,await sys.printerOverview());
         case 'permissions/catalog':return send(res,200,catalogView());
@@ -112,14 +112,13 @@ class AdminApi {
         result=await sys.backups.restorer.restore(b.uploadId,{actor:s});sys.onRestored?.();
         result.hardware=await sys.hardware.check(sys.scale);break;
       }
-      // A PIN, permissions or the blind withdrawal limit: the administrator's password again, as for any change of access.
+      // A PIN, permissions or the strict blind setting: the administrator's password again, as for any change of access.
       case 'operators/credentials':{const s=await this.confirmed(req,b);result=await sys.pos.operators.setPin(b.employeeId,b.pin,{by:s.username,applyDefaults:b.applyDefaults===true});break;}
       case 'operators/permissions':{const s=await this.confirmed(req,b);result=await sys.pos.operators.setPermissions(b.employeeId,b.permissions||{},{by:s.username,reset:b.reset===true});break;}
       // Blocking needs no password (it only takes access away); giving it back does.
       case 'operators/disable':{const active=b.active===true;const s=active?await this.confirmed(req,b):await this.need(req);result=await sys.pos.operators.setActive(b.employeeId,active,{by:s.username});break;}
       case 'operators/settings':{
         const s=await this.confirmed(req,b);result={};
-        if(b.blindWithdrawalLimit!==undefined){const cents=await sys.db.setBlindWithdrawalLimit(b.blindWithdrawalLimit);await sys.audit({username:s.username,action:'limite_sangria_alterado',detail:{limiteCentavos:cents}});result.blindWithdrawalLimitCents=cents;}
         if(b.strictBlind!==undefined){result.strictBlind=await sys.db.setStrictBlind(b.strictBlind);await sys.audit({username:s.username,action:'modo_cego_alterado',detail:{rigoroso:result.strictBlind}});}
         break;
       }

@@ -93,7 +93,20 @@ const STEPS=[
       CHECK ((received_cents IS NULL AND change_cents IS NULL) OR (received_cents IS NOT NULL AND change_cents IS NOT NULL AND received_cents>=amount_cents AND change_cents=received_cents-amount_cents)));
       CREATE INDEX IF NOT EXISTS sale_payments_sale ON sale_payments(sale_id);`);
     await backfillSalePayments(q);
-  }
+  },
+  // 9: the expected amount of a method in a close may be negative. Withdrawals are free (no limit, only recorded), so the
+  // expected cash of a shift can be below zero; the close must still be possible. The table is rebuilt without the
+  // "expected_cents>=0" check (SQLite cannot drop one), keeping every row and its ids. The sync triggers are created again
+  // when the database is opened.
+  async q=>{await q.exec(`
+    ALTER TABLE shift_reconciliation_items RENAME TO shift_reconciliation_items_old;
+    CREATE TABLE shift_reconciliation_items(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,reconciliation_id INTEGER NOT NULL REFERENCES shift_reconciliations(id),
+      method TEXT NOT NULL CHECK (method IN ('cash','pix','credit','debit')),counted_cents INTEGER NOT NULL CHECK (counted_cents>=0),expected_cents INTEGER NOT NULL,
+      difference_cents INTEGER NOT NULL,UNIQUE(reconciliation_id,method),CHECK (difference_cents=counted_cents-expected_cents));
+    INSERT INTO shift_reconciliation_items(id,uuid,reconciliation_id,method,counted_cents,expected_cents,difference_cents)
+      SELECT id,uuid,reconciliation_id,method,counted_cents,expected_cents,difference_cents FROM shift_reconciliation_items_old;
+    DROP TABLE shift_reconciliation_items_old;
+    CREATE INDEX IF NOT EXISTS shift_reconciliation_items_rec ON shift_reconciliation_items(reconciliation_id);`);}
 ];
 // One row per sale that has none (step 8).
 async function backfillSalePayments(q){

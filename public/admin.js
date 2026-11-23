@@ -525,9 +525,8 @@ function permCard(o){
   </form>
   <p class="minor top-gap">As mudanças valem na hora, também para quem já está no caixa. Tirar uma permissão crítica encerra a sessão aberta da pessoa.</p></div>`;
 }
-const limitCard=s=>`<div class="card"><div class="card-title"><span>Sangria sem ver o saldo</span>${icon('wallet')}</div>
-  <p class="minor">Quem fecha o caixa às cegas pode fazer sangrias de até este valor por vez. Acima dele, só quem vê o saldo do caixa, ou o administrador.</p>
-  <form class="form" data-form="op-limit"><label>Limite por sangria (R$)<input name="limit" inputmode="decimal" value="${price(s.blindWithdrawalLimitCents)}" maxlength="12" required/></label><div class="form-actions"><button type="submit" class="secondary">${icon('check')}Salvar limite</button></div></form>
+const limitCard=s=>`<div class="card"><div class="card-title"><span>Conferência cega</span>${icon('wallet')}</div>
+  <p class="minor">Sangria e suprimento são livres para quem está no caixa e ficam registrados com o nome de quem fez.</p>
   <form class="form top-gap" data-form="op-strict"><label class="check-row"><input type="checkbox" name="strict" ${s.strictBlind?'checked':''}/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>Conferência cega rigorosa</strong><small>Ligada: nenhum funcionário vê totais, valores esperados ou diferenças antes de confirmar a contagem, mesmo com a permissão antiga de ver o esperado. Só o administrador vê durante o turno.</small></span></label><div class="form-actions"><button type="submit" class="secondary">${icon('check')}Salvar</button></div></form></div>`;
 function auditCard(){
  const label=permLabel(),list=A.opsAudit||[];
@@ -620,12 +619,6 @@ const FORMS={
    details:[added.length&&['Liberar',added.map(label).join(', ')],removed.length&&['Retirar',removed.map(label).join(', ')]].filter(Boolean)},
    pw=>apiPost('operators/permissions',{employeeId:o.id,permissions:changes,password:pw}));
   if(r){flash(`Permissões de ${o.name} salvas`);A.opSel=null;go('usuarios');}
- },
- async 'op-limit'(form){
-  const {limit}=formData(form);const cents=parseMoney(limit);if(cents===null)return flash('Use valor como 200,00',true);
-  const r=await withPassword({title:'Alterar o limite de sangria?',message:`Sem ver o saldo, cada sangria poderá ser de até ${money(cents)}.`,confirmLabel:'Salvar limite',iconName:'wallet'},
-   pw=>apiPost('operators/settings',{blindWithdrawalLimit:limit,password:pw}));
-  if(r){flash('Limite de sangria salvo');go('usuarios');}
  },
  async 'op-strict'(form){
   const strict=!!form.elements.strict.checked;

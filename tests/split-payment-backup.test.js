@@ -32,7 +32,7 @@ test('PB01 a backup carries the parts of every sale and restores them exactly, a
     await sellParts(a,'40,00',[{method:'cash',amount:'10,00'},{method:'pix',amount:'10,00'},{method:'credit',amount:'10,00'},{method:'debit',amount:'10,00'}]);
     const before=await partsTable(a);assert.equal(before.length,7);
     const file=backupFile(a,(await backup(a)).name);const key=await recoveryKey(a);
-    await setupAdmin(b);const r=await restore(b,file,{key});assert.equal(r.review.schemaVersion,8);ok(await r.confirm());
+    await setupAdmin(b);const r=await restore(b,file,{key});assert.equal(r.review.schemaVersion,9);ok(await r.confirm());
     assert.deepEqual(await partsTable(b),before);
     const report=await validateMigration(a.app.db.adapter,b.app.db.adapter);assert.equal(report.ok,true,JSON.stringify(report.tables.filter(x=>!x.ok)));
   }finally{await a.stop();await b.stop();}
@@ -47,7 +47,7 @@ test('PB02 a backup of schema v7 (sales without parts) is restored and every sal
       manifest:m=>{const counts={...m.summary.counts};delete counts.sale_payments;return {...m,schemaVersion:7,summary:{...m.summary,counts}};}});
     const key=await recoveryKey(a);await setupAdmin(b);
     const r=await restore(b,old,{key});assert.equal(r.review.schemaVersion,7);ok(await r.confirm());
-    assert.equal(await b.app.db.schemaVersion(),8);
+    assert.equal(await b.app.db.schemaVersion(),9);
     const parts=await partsTable(b);assert.deepEqual(parts.map(p=>[p.method,p.amount_cents]),[['cash',1000],['credit',2230],['pix',500]],'inclusive a venda cancelada');
     const bad=await b.app.db.adapter.all("SELECT s.id FROM sales s WHERE s.status='done' AND s.total_cents<>(SELECT SUM(p.amount_cents) FROM sale_payments p WHERE p.sale_id=s.id)");assert.deepEqual(bad,[]);
   }finally{await a.stop();await b.stop();}

@@ -10,7 +10,7 @@ const {PermissionService}=require('./services/PermissionService');const {Reconci
 const OPERATIONS={
   config:['getConfig','updateConfig'],
   employees:['listEmployees','employee','saveEmployee','removeEmployee','operatorId','operator','setOperator','requireOperator'],
-  cash:['shift','openShift','moveCash','shiftTotals','cashSummary','closeShift','blindWithdrawalLimit','setBlindWithdrawalLimit','strictBlind','setStrictBlind'],
+  cash:['shift','openShift','moveCash','shiftTotals','cashSummary','closeShift','strictBlind','setStrictBlind'],
   stock:['listProducts','product','favoriteProduct','deleteProduct'],
   sales:['draftRow','activeSaleId','listDraftSales','getDraftSale','createDraftSale','selectDraftSale','renameDraftSale','addUnit','setQuantity','addWeighed','captureWeighing',
     'addManualWeight','addManualValue','removeDraftSaleItem','transferDraftSaleItem','draftEvents','discardDraftSale','checkoutDraftSale','cancelSale','correctSale','saleDetail'],

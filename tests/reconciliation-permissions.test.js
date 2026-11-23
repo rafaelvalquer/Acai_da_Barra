@@ -36,7 +36,7 @@ test('F12 before the count is confirmed an employee receives no total, no expect
     for(const body of [{shiftId,idempotencyKey:key(),counted:counted('-1,00','0','0','0')},{shiftId,idempotencyKey:key(),counted:counted('1','x','0','0')},{shiftId:shiftId+1,idempotencyKey:key(),counted:counted('0','0','0','0')},{shiftId,idempotencyKey:'x',counted:counted('0','0','0','0')}]){
       const r=await t.post('/api/shift/close',body,c);assert.ok(r.status>=400);noTotals(r.body,'erro de fechamento');
     }
-    const w=await t.post('/api/shift/move',{kind:'withdrawal',amount:'900,00',note:'x'},c);assert.ok([400,403].includes(w.status));noTotals(w.body,'sangria');assert.ok(!/em caixa|saldo|esperad/i.test(w.body.error));
+    const w=await t.post('/api/shift/move',{kind:'withdrawal',amount:'900,00',note:'x'},c);assert.equal(w.status,200);noTotals(w.body,'sangria');
     // Counting wrong and counting right look the same until the close is confirmed: no "almost" feedback.
     assert.equal((await t.db.shift()).id,shiftId);
   }finally{await t.close();}
@@ -122,7 +122,6 @@ test('strict blind: "cash.view_expected" given before does not open the totals o
     const st=(await t.get('/api/state',c)).body;assert.equal(st.cash.blind,true);noTotals(st.cash,'state');
     const rep=(await t.get('/api/report?period=day',c)).body;assert.equal(rep.blind,true);assert.equal(rep.methods,undefined);
     const sales=(await t.get('/api/sales',c)).body;assert.ok(sales.sales.every(s=>s.method!==undefined));
-    const w=await t.post('/api/shift/move',{kind:'withdrawal',amount:'1,00',note:'x'},c);void w;
     // The administrator, always, and the employee after the close (her own figures).
     const a=await t.signInAdmin();assert.equal((await t.get('/api/state',a)).body.cash.expectedCents,25000);
     // With the strictness off the old permission works again.

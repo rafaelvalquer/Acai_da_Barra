@@ -4,7 +4,7 @@
 // config/admin.sqlite, no default PIN, the administrator's own password). Only demo/build.js puts it in dist/.
 const DEMO_PEOPLE=[
   {name:'Ana Paula',pin:'102030',profile:'operadora',extra:[]},
-  {name:'Bruno Lima',pin:'405060',profile:'supervisor',extra:['screen.relatorios','screen.produtos','cash.view_expected','cash.view_history','cash.move','sales.cancel','sales.correct','reports.view','products.view']},
+  {name:'Bruno Lima',pin:'405060',profile:'supervisor',extra:['screen.relatorios','screen.produtos','cash.view_expected','cash.view_history','sales.cancel','sales.correct','reports.view','products.view']},
   {name:'Carla Souza',pin:'708090',profile:'só vendas',only:['screen.vendas','sales.create','sales.checkout','sales.manual_weight']}
 ];
 const DEMO_ADMIN={username:'admin',password:'demo'};

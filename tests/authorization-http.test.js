@@ -30,12 +30,12 @@ test('A08 an employee at the till is refused in the Admin area (403), and the at
     assert.equal((await t.get('/api/admin/overview',adminCookie)).status,403);
     const password=t.adminPassword;
     for(const [route,body] of [['operators/permissions',{employeeId:ana.id,permissions:{'cash.view_expected':false},password}],['operators/credentials',{employeeId:ana.id,pin:testPin(),password}],
-      ['operators/disable',{employeeId:ana.id,active:false}],['operators/settings',{blindWithdrawalLimit:'999,00',password}],['backup/export',{}],['pos-session',{}],['database/use-local',{password}],['change-password',{current:password,next:'x'}]]){
+      ['operators/disable',{employeeId:ana.id,active:false}],['operators/settings',{strictBlind:false,password}],['backup/export',{}],['pos-session',{}],['database/use-local',{password}],['change-password',{current:password,next:'x'}]]){
       const r=await t.post('/api/admin/'+route,body,null);assert.equal(r.status,403,`${route}: ${JSON.stringify(r.body)}`);
     }
     // Nothing changed: Ana keeps her PIN and permissions, and the limit is the default.
     assert.ok((await t.get('/api/state',null)).body.auth.permissions.includes('cash.view_expected'));
-    assert.equal(await t.app.db.blindWithdrawalLimit(),20000);
+    assert.equal(await t.app.db.strictBlind(),true);
     const denied=(await audit(t)).filter(a=>a.action==='acesso_negado');
     assert.ok(denied.some(a=>a.username==='Ana'&&a.detail.permissao==='admin'&&a.detail.rota==='/api/admin'&&a.ok===false));
     // The administrator signs in again (the Admin area's own sign-in is never blocked for the employee's presence).
