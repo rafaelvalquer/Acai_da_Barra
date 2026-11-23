@@ -107,14 +107,20 @@ test('C09 sangria e suprimento são livres para qualquer pessoa no caixa, sem li
     // Sem nenhuma permissão extra: quem está no caixa pode registrar, e o painel segue cego.
     const c=await t.signIn('Carla',DEFAULTS);await shiftOf250(t,c);
     const moved=ok(await t.post('/api/shift/move',{kind:'withdrawal',amount:'1.250,00',note:'cofre'},c));
-    assert.equal(moved.blind,true);noBalance(moved,[22000,25000]);assert.equal(moved.events.length,1);assert.equal(moved.events[0].amount_cents,125000);assert.equal(moved.events[0].operator_name,'Carla');
+    assert.equal(moved.blind,true);noBalance(moved,[22000,25000]);
+    // Registrar é livre, mas ver a lista não: sem o histórico do caixa a resposta e o estado não trazem movimento nenhum.
+    assert.deepEqual(moved.events,[]);assert.deepEqual((await t.get('/api/state',c)).body.cash.events,[]);assert.ok(!JSON.stringify((await t.get('/api/state',c)).body.cash).includes('125000'));
     ok(await t.post('/api/shift/move',{kind:'supply',amount:'5,00',note:'troco'},c));
     ok(await t.post('/api/shift/move',{kind:'withdrawal',amount:'300,00'},c));
+    // Quem tem o histórico do caixa vê a lista, com quem fez e o valor.
+    const boss=await t.signIn('Chefe',[...DEFAULTS,'cash.view_history']);
+    const list=(await t.get('/api/state',boss)).body.cash.events;assert.equal(list.length,3);
+    const first=list.find(e=>e.amount_cents===125000);assert.equal(first.operator_name,'Carla');assert.equal(first.kind,'withdrawal');
     // Rastreabilidade: quem, o quê, quanto e a descrição.
     const a=t.pos.audits.filter(x=>x.action==='sangria');assert.equal(a.length,2);assert.deepEqual(a[0].detail,{turno:moved.shift.id,valorCentavos:125000,descricao:'cofre'});assert.equal(a[0].username,'Carla');
     assert.equal(t.pos.audits.filter(x=>x.action==='suprimento').length,1);
     // Erros de formato continuam, sem revelar saldo.
-    const bad=await t.post('/api/shift/move',{kind:'withdrawal',amount:'x'},c);assert.equal(bad.status,400);noBalance(bad.body,[-15000,15000,0]);
+    const bad=await t.post('/api/shift/move',{kind:'withdrawal',amount:'x'},boss);assert.equal(bad.status,400);noBalance(bad.body,[-15000,15000,0]);
   }finally{await t.close();}
 });
 

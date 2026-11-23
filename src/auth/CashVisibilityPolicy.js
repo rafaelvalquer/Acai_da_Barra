@@ -11,8 +11,8 @@ const can=(identity,p)=>hasPermission(identity,p);
 // they were given before the full count existed. Only the administrator does, and the employee who closed sees
 // the figures of that close afterwards (the confirmed report, src/server.js). Turned off, the permission works as before.
 const seesExpected=(identity,{strict=true}={})=>can(identity,'cash.view_expected')&&(!strict||identity.kind==='admin');
-// Sangria e suprimento são livres para quem está no caixa; a lista do turno mostra quem fez cada um.
-const seesMovements=()=>true;
+// Anyone at the till may record a withdrawal or a supply (no permission), but only who may see the cash history sees the list.
+const seesMovements=identity=>can(identity,'cash.view_history');
 // The cash panel of the open shift (store.cashSummary()).
 function cash(summary,identity,opts){
   if(!summary)return summary;

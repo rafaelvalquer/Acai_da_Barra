@@ -526,7 +526,7 @@ function permCard(o){
   <p class="minor top-gap">As mudanças valem na hora, também para quem já está no caixa. Tirar uma permissão crítica encerra a sessão aberta da pessoa.</p></div>`;
 }
 const limitCard=s=>`<div class="card"><div class="card-title"><span>Conferência cega</span>${icon('wallet')}</div>
-  <p class="minor">Sangria e suprimento são livres para quem está no caixa e ficam registrados com o nome de quem fez.</p>
+  <p class="minor">Sangria e suprimento são livres para quem está no caixa e ficam registrados com o nome de quem fez. Só quem tem a permissão de ver o histórico do caixa vê a lista, na tela Movimentação de caixa e em Relatórios.</p>
   <form class="form top-gap" data-form="op-strict"><label class="check-row"><input type="checkbox" name="strict" ${s.strictBlind?'checked':''}/><span class="check-box" aria-hidden="true">${icon('check')}</span><span><strong>Conferência cega rigorosa</strong><small>Ligada: nenhum funcionário vê totais, valores esperados ou diferenças antes de confirmar a contagem, mesmo com a permissão antiga de ver o esperado. Só o administrador vê durante o turno.</small></span></label><div class="form-actions"><button type="submit" class="secondary">${icon('check')}Salvar</button></div></form></div>`;
 function auditCard(){
  const label=permLabel(),list=A.opsAudit||[];
