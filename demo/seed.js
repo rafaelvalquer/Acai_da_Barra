@@ -32,10 +32,14 @@ async function seed(filename){
       for(let c=rnd()<.22?2:1;c>0;c--){if(rnd()<.05)await s.addManualWeight(sale,'0,'+String(between(30,75)*10).padStart(3,'0'));else await s.addWeighed(sale,between(26,82)*10);}
       if(rnd()<.33)await s.addUnit(sale,pick(prods),rnd()<.8?1:2);
       // Cash customers hand over the next R$ 10 up; computed without rnd(), so the rest of the data stays the same.
-      const m=method();ids.push((await s.checkoutDraftSale(sale,m,randomUUID(),m==='cash'?brl(Math.ceil((await s.getDraftSale(sale)).totalCents/1000)*1000):undefined)).sale.id);
+      const m=method();
+      // One sale in seven is paid in two parts (half in cash, the rest in Pix): chosen by position, without rnd(), so the rest of the data stays the same.
+      const total=(await s.getDraftSale(sale)).totalCents,half=Math.floor(total/200)*100;
+      if(i%7===3&&half>=100)ids.push((await s.checkoutDraftSale(sale,null,randomUUID(),undefined,undefined,[{method:'cash',amount:brl(half),received:brl(Math.ceil(half/1000)*1000)},{method:'pix',amount:brl(total-half)}])).sale.id);
+      else ids.push((await s.checkoutDraftSale(sale,m,randomUUID(),m==='cash'?brl(Math.ceil(total/1000)*1000):undefined)).sale.id);
     }
     const span=(lastHour-firstHour)*60+50;
-    ids.forEach((id,i)=>{const t=Math.floor((i+rnd()*.8)*span/ids.length);const when=at(offset,firstHour+Math.floor(t/60),t%60);upd('UPDATE sales SET created_at=? WHERE id=?',when,id);
+    ids.forEach((id,i)=>{const t=Math.floor((i+rnd()*.8)*span/ids.length);const when=at(offset,firstHour+Math.floor(t/60),t%60);upd('UPDATE sales SET created_at=? WHERE id=?',when,id);upd('UPDATE sale_payments SET created_at=? WHERE sale_id=?',when,id);
       // The open sale behind each sale was served in the minutes before it was paid.
       const started=new Date(Date.parse(when)-3*60000).toISOString();
       upd('UPDATE draft_sales SET created_at=?,updated_at=?,completed_at=? WHERE sale_id=?',started,when,when,id);

@@ -19,7 +19,7 @@ const productFilters={search:'',channel:'loja',category:null};const channelBySal
 let formChannelTouched=false;
 const CAT_TONE={'Açaís':'c-acai','Bebidas':'c-bebida','Sucos e Vitaminas':'c-suco','Sobremesas':'c-doce','Caldos':'c-caldo','Crepes e Lanches':'c-lanche','Combos':'c-combo','Outros':'c-outro'};
 const PF=()=>window.ProductFilter;
-const PAY={pix:'Pix',cash:'Dinheiro',debit:'Débito',credit:'Crédito'};
+const PAY={pix:'Pix',cash:'Dinheiro',debit:'Débito',credit:'Crédito',mixed:'Misto'};
 const WEEK=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MONTHS=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 // Calendar helpers on YYYY-MM-DD strings (the server decides what "today" is).
@@ -75,6 +75,70 @@ function renderCashBox(){
   :short?`<span>Faltam</span><strong class="neg">${money(total-received)}</strong>`:`<span>Troco</span><strong class="pos">${money(received-total)}</strong>`);
  return invalid||short;
 }
+// —— Dividir pagamento: one sale paid in one to four parts (one per method). The server checks everything again against
+// the total it calculates itself; this only helps the operator. Nothing is kept between sales: the form starts empty for
+// each sale, and the request id (uuid) is kept only while the same sale and total are open, so a retry cannot charge twice.
+const SPLIT_METHODS=['cash','pix','credit','debit'];
+let split=null;
+function splitRead(){
+ const total=split.total,parts=[];let invalid=null;
+ for(const m of SPLIT_METHODS){const raw=$('split-'+m).value.trim();if(!raw)continue;const c=parseMoney(raw);
+  if(c===null){invalid=`Valor de ${PAY[m]} inválido. Use 10,00`;continue;}if(c>0)parts.push({method:m,cents:c});}
+ const sum=parts.reduce((s,p)=>s+p.cents,0),rest=total-sum;
+ const cash=parts.find(p=>p.method==='cash');let received=null,change=null,short=false;
+ const rawR=$('split-received').value.trim();
+ if(cash&&rawR){received=parseMoney(rawR);if(received===null)invalid=invalid||'Valor recebido em dinheiro inválido. Use 50,00';else if(received<cash.cents)short=true;else change=received-cash.cents;}
+ return {parts,sum,rest,cash,received,change,short,invalid,ready:!invalid&&!short&&parts.length>0&&rest===0};
+}
+function splitRender(){
+ if(!split)return;const r=splitRead();
+ $('split-total').textContent=money(split.total);$('split-sale').textContent=split.label;
+ const cashOn=!!r.cash;$('split-cash-box').classList.toggle('hidden',!cashOn);
+ if(cashOn){const v=r.cash.cents;paint('split-quick',[`<button type="button" data-split-received="${price(v)}">Exato</button>`,...quickBills(v).map(b=>`<button type="button" data-split-received="${price(b)}">R$ ${b/100}</button>`)].join(''));
+  paint('split-change',!$('split-received').value.trim()?'<span class="cash-hint">Informe o valor recebido para calcular o troco (opcional)</span>':r.short?`<span>Faltam</span><strong class="neg">${money(r.cash.cents-(r.received||0))}</strong>`:r.change!==null?`<span>Troco</span><strong class="pos">${money(r.change)}</strong>`:'<span class="cash-hint neg">Use valor como 50,00</span>');}
+ paint('split-sum',`<div><small>Soma das formas</small><strong>${money(r.sum)}</strong></div><div class="${r.rest===0&&r.sum>0?'ok':'bad'}"><small>${r.rest<0?'Passou do total':'Falta pagar'}</small><strong>${money(Math.abs(r.rest))}</strong></div>`);
+ const warn=r.invalid||(r.short?'O valor recebido em dinheiro é menor que a parcela em dinheiro.':r.rest<0?'A soma passou do total da venda.':'');
+ $('split-warn').classList.toggle('hidden',!warn);$('split-warn').textContent=warn||'';
+ for(const m of SPLIT_METHODS){const b=document.querySelector(`[data-split-fill="${m}"]`);if(b)b.disabled=r.rest<=0&&!$('split-'+m).value.trim()||split.sending;}
+ $('split-next').disabled=!r.ready||split.sending;
+}
+function splitOpen(){
+ const sale=state.activeSale;if(!state.cash.shift||!sale||!state.cart.length||!can('sales.checkout'))return flash('Adicione itens à venda e abra o caixa para cobrar',true);
+ split={saleId:sale.id,label:sale.label,revision:sale.revision,total:state.cartTotalCents,uuid:crypto.randomUUID(),sending:false,review:false,warned:false};
+ $('split-rows').innerHTML=SPLIT_METHODS.map(m=>`<div class="split-row"><label for="split-${m}">${PAY[m]}</label><span class="cash-input"><span>R$</span><input id="split-${m}" data-split-input="${m}" inputmode="decimal" autocomplete="off" placeholder="0,00"/></span><button type="button" data-split-fill="${m}">Preencher restante</button></div>${m==='cash'?`<div class="split-cash hidden" id="split-cash-box"><label class="cash-field"><span class="field-label">Valor recebido em dinheiro</span><span class="cash-input"><span>R$</span><input id="split-received" inputmode="decimal" autocomplete="off" placeholder="0,00"/></span></label><div class="cash-quick" id="split-quick"></div><div class="cash-change" id="split-change" aria-live="polite"></div></div>`:''}`).join('');
+ splitStep(false);splitRender();$('split-dialog').showModal();$('split-pix').focus();
+}
+function splitStep(review){
+ split.review=review;$('split-edit').classList.toggle('hidden',review);$('split-review').classList.toggle('hidden',!review);
+ $('split-actions-edit').classList.toggle('hidden',review);$('split-actions-review').classList.toggle('hidden',!review);
+ $('split-title').textContent=review?'Confirmar pagamento':'Dividir pagamento';
+ if(review){const r=splitRead();const lines=SPLIT_METHODS.map(m=>r.parts.find(p=>p.method===m)).filter(Boolean);
+  $('split-review-list').innerHTML=lines.map(p=>`<div class="rowline"><span>${PAY[p.method]}</span><strong>${money(p.cents)}</strong></div>${p.method==='cash'&&r.received!==null?`<div class="rowline"><small>Recebido em dinheiro</small><small>${money(r.received)}</small></div><div class="rowline"><small>Troco</small><strong class="pos">${money(r.change)}</strong></div>`:''}`).join('')+`<div class="rowline"><span>Total</span><strong>${money(split.total)}</strong></div>`;
+  $('split-confirm').disabled=false;$('split-confirm').focus();}
+}
+// The sale or its total changed while the window was open (a weighing arrived, another sale was selected): what was
+// typed no longer matches what would be charged, so nothing is sent; the person starts again with the new total.
+function splitSync(){
+ if(!split||split.sending||!$('split-dialog').open)return;
+ const sale=state.activeSale;
+ if(!sale||sale.id!==split.saleId){splitClose();flash('A venda selecionada mudou. Abra Dividir pagamento de novo.',true);return;}
+ if(state.cartTotalCents!==split.total||sale.revision!==split.revision){
+  split.total=state.cartTotalCents;split.revision=sale.revision;split.uuid=crypto.randomUUID();
+  if(!state.cart.length){splitClose();return;}
+  splitStep(false);splitRender();flash('O total da venda mudou. Confira os valores de novo.',true);return;}
+ splitRender();
+}
+function splitClose(){const d=$('split-dialog');if(d.open)d.close();split=null;}
+async function splitConfirm(){
+ if(!split||split.sending)return;const sale=state.activeSale;const r=splitRead();
+ if(!sale||sale.id!==split.saleId||sale.revision!==split.revision||state.cartTotalCents!==split.total||!r.ready)return splitSync();
+ split.sending=true;$('split-confirm').disabled=true;$('split-back').disabled=true;checkingOut=true;$('btn-checkout').disabled=true;
+ const payments=r.parts.map(p=>({method:p.method,amount:price(p.cents),...(p.method==='cash'&&r.received!==null&&{received:price(r.received)})}));
+ try{
+  const result=await run('/api/checkout',{saleId:split.saleId,revision:split.revision,uuid:split.uuid,payments});
+  if(result){const label=split.label;splitClose();$('cash-received').value='';flash(`${label} cobrada · venda #${result.sale.id}${result.sale.change_cents!=null?` · troco ${money(result.sale.change_cents)}`:''}${result.duplicate?' (já estava registrada)':''}`);}
+ }finally{if(split){split.sending=false;$('split-back').disabled=false;$('split-confirm').disabled=false;}checkingOut=false;render();}
+}
 function render(){
  if(!state.scale)return;
  applyAccess();
@@ -112,6 +176,7 @@ function render(){
  paint('cart-items',n?state.cart.map(p=>`<div class="cart-item"><span class="ci-icon ${p.manual?'is-manual':p.kind==='weight'?'is-weight':''}">${icon(p.manual?'keyboard':p.kind==='unit'?'box':'cup')}</span><div class="ci-main"><strong>${safe(p.label)}</strong><small>${itemLine(p.kind,p.grams,p.quantity,p.unitCents)}</small></div>${p.kind==='unit'&&sell?`<div class="qty"><button data-qty="${safe(p.key)}" data-to="${p.quantity-1}" ${p.quantity<2?'disabled':''} aria-label="Diminuir quantidade">${icon('minus')}</button><span>${p.quantity}</span><button data-qty="${safe(p.key)}" data-to="${p.quantity+1}" aria-label="Aumentar quantidade">${icon('plus')}</button></div>`:''}<span class="ci-total">${money(p.totalCents)}</span><div class="ci-actions">${moving?`<button class="move" data-move="${safe(p.key)}" aria-label="Transferir ${safe(p.label)} para outra venda" title="Transferir para outra venda">${icon('swap')}</button>`:''}${sell?`<button class="remove" data-remove="${safe(p.key)}" aria-label="Remover ${safe(p.label)}" title="Remover">${icon('x')}</button>`:''}</div></div>`).join(''):emptyState('cup','Nenhum item ainda','Coloque o copo na balança ou toque em um produto avulso.'));
  const cashBlocked=renderCashBox(),pay=can('sales.checkout');
  $('btn-checkout').disabled=!pay||!shift||n===0||checkingOut||cashBlocked;$('checkout-label').textContent=!pay?'Cobrar: peça a quem tem permissão':n?`Cobrar esta venda · ${money(state.cartTotalCents)}`:'Cobrar esta venda';
+ $('btn-split').classList.toggle('hidden',!pay);$('btn-split').disabled=!pay||!shift||n===0||checkingOut;splitSync();
  $('btn-discard').classList.toggle('hidden',!can('sales.discard'));$('btn-discard').disabled=!state.activeSale||(n===0&&state.openSales.length<2);
  $('btn-new-sale').disabled=!sell;
  renderCash();renderProducts();renderEmployees();renderScaleAccess();
@@ -327,7 +392,7 @@ async function openSale(id){
  $('sale-body').innerHTML=`<div class="sale-meta"><div><small>Data e hora</small><strong>${date(s.created_at)}</strong></div><div><small>Operador</small><strong>${safe(s.operator_name||'—')}</strong></div><div><small>Pagamento</small><strong>${safe(PAY[s.method]||"—")}</strong></div><div><small>Itens</small><strong>${s.items.length}</strong></div>${s.draft_label?`<div><small>Atendimento</small><strong>${safe(s.draft_label)}</strong></div>`:''}</div>
   <div class="sale-items">${s.items.map(i=>`<div class="rowline"><div class="grow"><strong>${safe(i.label)}${i.manual?' <span class="tag warn">digitado</span>':''}</strong><small>${itemLine(i.kind,i.grams,i.quantity,i.unit_cents)}</small></div><strong>${money(i.total_cents)}</strong></div>`).join('')}</div>
   <div class="sale-total ${s.status==='canceled'?'is-canceled':''}"><span>Total</span><strong>${money(s.total_cents)}</strong></div>
-  ${s.received_cents!=null?`<div class="sale-change"><div class="rowline"><span>Valor recebido</span><strong>${money(s.received_cents)}</strong></div><div class="rowline"><span>Troco</span><strong>${money(s.change_cents)}</strong></div></div>`:''}
+  ${(s.payments||[]).length>1||(s.payments||[]).some(p=>p.receivedCents!=null)?`<div class="sale-change">${s.payments.map(p=>`<div class="rowline"><span>${safe(PAY[p.method]||p.method)}</span><strong>${money(p.amountCents)}</strong></div>${p.receivedCents!=null?`<div class="rowline"><small>Recebido em dinheiro</small><small>${money(p.receivedCents)}</small></div><div class="rowline"><small>Troco</small><small>${money(p.changeCents)}</small></div>`:''}`).join('')}</div>`:s.received_cents!=null?`<div class="sale-change"><div class="rowline"><span>Valor recebido</span><strong>${money(s.received_cents)}</strong></div><div class="rowline"><span>Troco</span><strong>${money(s.change_cents)}</strong></div></div>`:''}
   ${s.status==='canceled'?`<div class="notice danger">${icon('alert')}<span><strong>Cancelada por ${safe(s.canceled_by_name||'—')}</strong> em ${date(s.canceled_at)}.<br/>Motivo: ${safe(s.cancel_reason)}</span></div>`:!s.cancelable?`<div class="notice">${icon('info')}<span>Vendas de caixas já fechados não podem ser canceladas, para não alterar um fechamento já conferido.</span></div>`:''}`;
  const cancel=can('sales.cancel'),correct=can('sales.correct');$('btn-sale-cancel').classList.toggle('hidden',!cancel);$('btn-sale-correct').classList.toggle('hidden',!correct);
  $('sale-actions').classList.toggle('hidden',!s.cancelable||(!cancel&&!correct));$('sale-dialog').showModal();
@@ -564,6 +629,16 @@ async function boot(){
  $('cash-received').addEventListener('keydown',e=>{if(e.key!=='Enter')return;e.preventDefault();const c=cashState();if(c.invalid||c.short)return flash(c.invalid?'Use valor como 50,00':'Valor recebido menor que o total da venda',true);$('btn-checkout').click();});
  $('cash-quick').addEventListener('click',e=>{const b=e.target.closest('[data-received]');if(b){$('cash-received').value=b.dataset.received;render();}});
  $('payment-method').addEventListener('keydown',e=>{const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[e.key];if(!step)return;e.preventDefault();const list=[...document.querySelectorAll('[data-pay]')];const next=list[(list.findIndex(b=>b.dataset.pay===payMethod)+step+list.length)%list.length];setPay(next.dataset.pay);next.focus();});
+ $('btn-split').addEventListener('click',splitOpen);
+ $('split-form').addEventListener('submit',e=>{e.preventDefault();if(split&&!split.sending&&splitRead().ready)splitStep(true);});
+ $('split-form').addEventListener('input',e=>{if(split&&(e.target.id==='split-received'||e.target.dataset.splitInput))splitRender();});
+ $('split-rows').addEventListener('click',e=>{if(!split)return;const f=e.target.closest('[data-split-fill]');
+  if(f){const m=f.dataset.splitFill,inp=$('split-'+m);const r=splitRead();const cur=parseMoney(inp.value.trim()||'0')||0;if(r.rest>0){inp.value=price(cur+r.rest);splitRender();}return;}
+  const q=e.target.closest('[data-split-received]');if(q){$('split-received').value=q.dataset.splitReceived;splitRender();}});
+ $('split-cancel').addEventListener('click',splitClose);$('split-back').addEventListener('click',()=>{if(split&&!split.sending){splitStep(false);splitRender();}});
+ $('split-confirm').addEventListener('click',splitConfirm);
+ $('split-dialog').addEventListener('close',()=>{if(split&&!split.sending)split=null;});
+ $('split-dialog').addEventListener('cancel',e=>{if(split&&split.sending)e.preventDefault();});
  $('btn-checkout').addEventListener('click',async()=>{if(checkingOut)return;const sale=state.activeSale;if(!sale)return;const n=state.cart.length,total=state.cartTotalCents,revision=sale.revision;
   const received=payMethod==='cash'?cashState().received:null,others=state.openSales.length-1;
   if(!await ask(`Cobrar ${sale.label}?`,`${plural(n,'item','itens')} · pagamento em ${PAY[payMethod]}${others?`. ${others===1?'A outra venda continua aberta':`As outras ${others} vendas continuam abertas`}.`:''}`,{confirmLabel:`Cobrar ${money(total)}`,tone:'success',details:[['Total',money(total)],...(received!==null?[['Recebido',money(received)],['Troco',money(received-total),'pos']]:[])]}))return;
@@ -640,7 +715,7 @@ async function boot(){
  $('hist-list').addEventListener('click',e=>{const row=e.target.closest('[data-sale]');if(row)openSale(Number(row.dataset.sale));});
  $('hist-list').addEventListener('keydown',e=>{const row=e.target.closest('[data-sale]');if(row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openSale(Number(row.dataset.sale));}});
  $('btn-sale-cancel').addEventListener('click',async()=>{const s=currentSale;$('sale-dialog').close();
-  const reason=await ask(`Cancelar a venda #${s.id}?`,`${money(s.total_cents)} em ${PAY[s.method]}. O estoque volta e a venda sai dos totais do caixa.`,{confirmLabel:'Cancelar venda',tone:'danger-solid',input:{label:'Motivo do cancelamento',placeholder:'Ex.: cliente desistiu'}});
+  const reason=await ask(`Cancelar a venda #${s.id}?`,`${money(s.total_cents)} em ${PAY[s.method]}${s.method==='mixed'?' (pagamento dividido)':''}. O estoque volta e a venda sai dos totais do caixa.`,{confirmLabel:'Cancelar venda',tone:'danger-solid',input:{label:'Motivo do cancelamento',placeholder:'Ex.: cliente desistiu'}});
   if(reason&&await run('/api/sales/cancel',{id:s.id,reason},()=>flash(`Venda #${s.id} cancelada`)))renderHistory();});
  $('btn-sale-correct').addEventListener('click',async()=>{const s=currentSale;$('sale-dialog').close();
   const reason=await ask(`Corrigir a venda #${s.id}?`,'A venda é cancelada e os itens vão para uma nova venda aberta, para você ajustar e cobrar de novo. As outras vendas não mudam.',{confirmLabel:'Cancelar e corrigir',tone:'primary',input:{label:'O que precisa corrigir?',placeholder:'Ex.: peso errado'}});

@@ -135,6 +135,7 @@
      <button type="button" class="pay" role="radio" aria-checked="false" tabindex="-1" data-pay="debit"><svg class="i" aria-hidden="true"><use href="#i-card"/></svg>Débito</button>
      <button type="button" class="pay" role="radio" aria-checked="false" tabindex="-1" data-pay="credit"><svg class="i" aria-hidden="true"><use href="#i-card"/></svg>Crédito</button>
     </div>
+    <button type="button" class="link-btn split-open" id="btn-split"><svg class="i" aria-hidden="true"><use href="#i-swap"/></svg>Dividir pagamento</button>
     <div class="cash-box hidden" id="cash-box">
      <label class="cash-field"><span class="field-label">Valor recebido</span><span class="cash-input"><span>R$</span><input id="cash-received" inputmode="decimal" autocomplete="off" placeholder="0,00" aria-describedby="cash-change"/></span></label>
      <div class="cash-quick" id="cash-quick" aria-label="Atalhos de valor recebido"></div>
@@ -308,6 +309,25 @@
   <label class="big-field"><span id="manual-label">Peso do copo</span><span class="big-input"><span id="manual-prefix"></span><input id="manual-input" inputmode="decimal" autocomplete="off" placeholder="0,450"/><span id="manual-unit">kg</span></span></label>
   <div class="manual-preview" id="manual-preview"></div>
   <div class="modal-actions"><button type="submit" class="primary" id="manual-ok"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Adicionar</button><button type="button" class="secondary" id="manual-cancel">Voltar</button></div>
+ </form>
+</dialog>
+
+<dialog id="split-dialog" class="modal wide" aria-labelledby="split-title">
+ <form id="split-form" novalidate>
+  <div class="modal-head"><h2 id="split-title">Dividir pagamento</h2><span class="tag" id="split-sale">—</span></div>
+  <div class="split-total"><span>Total da venda</span><strong id="split-total">R$ 0,00</strong></div>
+  <div id="split-edit">
+   <p class="split-help">Digite quanto o cliente paga em cada forma. A soma precisa ser igual ao total.</p>
+   <div class="split-rows" id="split-rows"></div>
+   <div class="split-sum" id="split-sum" aria-live="polite"></div>
+   <div class="notice danger hidden" id="split-warn" role="alert"></div>
+  </div>
+  <div id="split-review" class="hidden">
+   <p class="split-help">Confira o que será recebido. Depois de confirmar, a venda é finalizada.</p>
+   <div class="split-review-list" id="split-review-list"></div>
+  </div>
+  <div class="modal-actions" id="split-actions-edit"><button type="submit" class="primary" id="split-next">Revisar pagamento</button><button type="button" class="secondary" id="split-cancel">Voltar</button></div>
+  <div class="modal-actions hidden" id="split-actions-review"><button type="button" class="success big" id="split-confirm"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Confirmar recebimento e finalizar venda</button><button type="button" class="secondary" id="split-back">Corrigir valores</button></div>
  </form>
 </dialog>
 

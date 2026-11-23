@@ -13,7 +13,7 @@ function moveToToday(db){
   const seedDay=db.prepare("SELECT v FROM settings WHERE k='demo_seed_day'").get()?.v;if(!seedDay)return;
   const shift=(table,cols,amount,where='1=1')=>db.exec(`UPDATE ${table} SET ${cols.map(c=>`${c}=CASE WHEN ${c} IS NULL THEN NULL ELSE strftime('%Y-%m-%dT%H:%M:%fZ',${c},'${amount}') END`).join(',')} WHERE ${where}`);
   const days=Math.round((dayMs(localDay(new Date()))-dayMs(seedDay))/DAY_MS);
-  if(days>0)for(const [table,cols] of [['shifts',['opened_at','closed_at']],['sales',['created_at','canceled_at']],['cash_events',['created_at']],['employees',['created_at']],['draft_sales',['created_at','updated_at','completed_at']],['draft_sale_items',['created_at']],['draft_sale_events',['created_at']]])shift(table,cols,`+${days} days`);
+  if(days>0)for(const [table,cols] of [['shifts',['opened_at','closed_at']],['sales',['created_at','canceled_at']],['sale_payments',['created_at']],['cash_events',['created_at']],['employees',['created_at']],['draft_sales',['created_at','updated_at','completed_at']],['draft_sale_items',['created_at']],['draft_sale_events',['created_at']]])shift(table,cols,`+${days} days`);
   const open=db.prepare('SELECT id FROM shifts WHERE closed_at IS NULL').get();
   if(open){
     const latest=db.prepare('SELECT MAX(t) AS t FROM (SELECT MAX(COALESCE(canceled_at,created_at)) AS t FROM sales WHERE shift_id=? UNION ALL SELECT MAX(created_at) FROM cash_events WHERE shift_id=? UNION ALL SELECT MAX(updated_at) FROM draft_sales WHERE shift_id=?)').get(open.id,open.id,open.id).t;
