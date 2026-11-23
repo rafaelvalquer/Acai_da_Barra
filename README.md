@@ -209,6 +209,14 @@ Backups, restauração, banco de dados, senhas e o cadastro de PINs são sempre 
 - Relatório térmico de 80 mm (ESC/POS, PC860) enviado pela fila do Windows, com **2ª via** marcada, fila persistente e fallback pelo navegador. Se a impressão falhar, o fechamento continua confirmado.
 - **A Elgin i9 ainda não foi homologada em equipamento real.** Configuração, atualização do Windows, voltar atrás e checklist físico: [docs/impressao-elgin-i9.md](docs/impressao-elgin-i9.md).
 
+### 4.4 Pagamento dividido por várias formas
+
+- Uma venda pode ser paga em **1 a 4 parcelas** (no máximo uma por Dinheiro, Pix, Crédito ou Débito). A soma tem de ser exatamente o total calculado pelo servidor. Os 4 botões de sempre continuam; **Dividir pagamento** abre a janela com soma, restante, troco e uma revisão antes de finalizar.
+- O troco é o valor recebido menos a **parcela em dinheiro**. Não há parcelamento de cartão nem Pix/TEF automático: o operador confirma cada recebimento.
+- Banco versão **8** (`sale_payments`): toda venda tem as suas parcelas (as antigas são preenchidas na atualização). O fechamento por forma, a Elgin i9 e os relatórios somam as parcelas; uma venda com 4 parcelas conta como 1 venda. O caixa cego continua cego (sem forma nem parcelas para quem não vê o esperado).
+- API: `POST /api/checkout` aceita `payments: [{method, amount, received?}]` (o contrato antigo continua).
+- **Ainda não homologado no computador da loja.** Atualização, rollback e checklist: [docs/pagamento-dividido.md](docs/pagamento-dividido.md).
+
 ## 5. Backup e restauração
 
 - **Automático:** todo dia às 02:00 (horário, dias guardados e liga/desliga em Backup e restauração). Se o computador estava desligado nesse horário, o backup é feito ao ligar. Também há um backup a cada **fechamento de caixa** (só se algo mudou) e o botão **Fazer backup agora**.

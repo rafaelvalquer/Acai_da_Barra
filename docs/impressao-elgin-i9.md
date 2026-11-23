@@ -1,6 +1,6 @@
 # Conferência de fechamento e impressão térmica (Elgin i9)
 
-Banco comercial: versão **7** (`shift_reconciliations`, `shift_reconciliation_items`). `config\admin.sqlite`: versão **3** (`print_jobs`, só neste computador).
+Banco comercial: versão **8** (v7: `shift_reconciliations`, `shift_reconciliation_items`; v8: `sale_payments`, ver docs/pagamento-dividido.md). `config\admin.sqlite`: versão **3** (`print_jobs`, só neste computador).
 
 > **Estado da homologação: PENDENTE.** O envio para a impressora foi testado apenas com uma impressora simulada (fila do Windows falsa).
 > Nada foi impresso na Elgin i9 real e o envio pela tarefa agendada (conta SYSTEM) não foi testado. Não dê a Elgin i9 como homologada antes de cumprir a seção 6.
