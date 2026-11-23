@@ -13,6 +13,8 @@ class CashRepository {
   salesCounts(shiftId){return this.q.all('SELECT status,COUNT(*) AS n FROM sales WHERE shift_id=? GROUP BY status',[shiftId]);}
   async moved(shiftId,kind){return (await this.q.get('SELECT COALESCE(SUM(amount_cents),0) AS amount FROM cash_events WHERE shift_id=? AND kind=?',[shiftId,kind])).amount;}
   events(shiftId){return this.q.all('SELECT c.id,c.shift_id,c.kind,c.amount_cents,c.note,c.created_at,c.operator_id,e.name AS operator_name FROM cash_events c LEFT JOIN employees e ON e.id=c.operator_id WHERE c.shift_id=? ORDER BY c.id DESC LIMIT 80',[shiftId]);}
+  // Every withdrawal and supply created between two instants' days (the caller trims by the store's local day), with who did it.
+  eventsBetween(from,to){return this.q.all('SELECT c.id,c.shift_id,c.kind,c.amount_cents,c.note,c.created_at,e.name AS operator_name FROM cash_events c LEFT JOIN employees e ON e.id=c.operator_id WHERE c.created_at>=? AND c.created_at<? ORDER BY c.created_at DESC,c.id DESC',[from,to]);}
   shiftsOpenedBetween(from,to){return this.q.all('SELECT sh.*,o.name AS opened_by_name,c.name AS closed_by_name FROM shifts sh LEFT JOIN employees o ON o.id=sh.opened_by LEFT JOIN employees c ON c.id=sh.closed_by WHERE sh.opened_at>=? AND sh.opened_at<? ORDER BY sh.id DESC',[from,to]);}
 }
 module.exports={CashRepository};

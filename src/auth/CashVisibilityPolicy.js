@@ -35,10 +35,14 @@ const moveResult=cash;
 // add up to the drawer balance of the open shift).
 function report(rep,identity,opts){
   const expected=seesExpected(identity,opts);
-  const shifts=can(identity,'cash.view_history')?(rep.shifts||[]).map(s=>expected?{...s}:withoutBalance(s)):[];
-  if(expected)return {...rep,shifts,blind:false};
-  const {methods,sales,...rest}=rep;
-  return {...rest,shifts,blind:true};
+  const history=can(identity,'cash.view_history');
+  const shifts=history?(rep.shifts||[]).map(s=>expected?{...s}:withoutBalance(s)):[];
+  // The history of withdrawals and supplies goes with the cash history permission, like the closings.
+  const {movements,movementTotals,...base}=rep;
+  const moves=history?{movements:movements||[],movementTotals:movementTotals||null}:{movements:[]};
+  if(expected)return {...base,...moves,shifts,blind:false};
+  const {methods,sales,...rest}=base;
+  return {...rest,...moves,shifts,blind:true};
 }
 // The sales of the open shift for someone who may not see its totals: each sale as it is, but not how it was paid
 // (adding them up by method would give the drawer balance and the Pix and card totals).

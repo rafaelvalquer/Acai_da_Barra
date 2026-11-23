@@ -421,6 +421,12 @@ async function renderReports(){
   :!r.shifts.length?emptyState('wallet','Nenhum caixa no período','')
   :r.blind?`<div class="table-wrap"><table class="table"><thead><tr><th>Abertura</th><th>Operador</th><th>Fechamento</th><th>Conferência</th></tr></thead><tbody>${r.shifts.map(x=>{const st=CLOSE_STATUS[x.status];return `<tr><td>${date(x.opened_at)}</td><td>${safe(x.opened_by_name||'—')}</td><td>${closedAt(x)}</td><td>${st?`<span class="tag ${st[1]==='pos'?'on':st[1]==='neg'?'off':'warn'}">${st[0]}</span>`:'—'}</td></tr>`;}).join('')}</tbody></table></div>`
   :`<div class="table-wrap"><table class="table"><thead><tr><th>Abertura</th><th>Operador</th><th>Fechamento</th><th>Esperado</th><th>Contado</th><th>Diferença</th></tr></thead><tbody>${r.shifts.map(x=>`<tr><td>${date(x.opened_at)}</td><td>${safe(x.opened_by_name||'—')}</td><td>${closedAt(x)}</td><td>${x.closed_at?money(x.expected_cents):'—'}</td><td>${x.closed_at?money(x.counted_cents):'—'}</td><td><strong class="${x.difference_cents<0?'neg':x.difference_cents>0?'pos':''}">${x.closed_at?signed(x.difference_cents):'—'}</strong></td></tr>`).join('')}</tbody></table></div>`;
+ // Withdrawals and supplies of the period: who did it, how much and when. Only with "cash.view_history" (the server sends none otherwise).
+ const mv=r.movements||[],mt=r.movementTotals;
+ $('report-movements-note').textContent=mt?`Sangrias ${money(mt.withdrawalsCents)} · Suprimentos ${money(mt.suppliesCents)}`:'';
+ $('report-movements').innerHTML=!can('cash.view_history')?emptyState('lock','Histórico com o administrador','Sangrias e suprimentos aparecem para quem tem a permissão de ver o histórico do caixa.')
+  :!mv.length?emptyState('swap','Nenhuma movimentação no período','Sangrias e suprimentos registrados aparecem aqui.')
+  :`<div class="table-wrap"><table class="table"><thead><tr><th>Data e hora</th><th>Tipo</th><th>Valor</th><th>Quem fez</th><th>Descrição</th><th>Turno</th></tr></thead><tbody>${mv.map(e=>{const out=e.kind==='withdrawal';return `<tr><td>${date(e.createdAt)}</td><td><span class="tag ${out?'off':'on'}">${out?'Sangria':'Suprimento'}</span></td><td><strong class="${out?'neg':'pos'}">${out?'−':'+'} ${money(e.amountCents)}</strong></td><td>${safe(e.operatorName||'—')}</td><td>${safe(e.note)||'—'}</td><td>#${e.shiftId}</td></tr>`;}).join('')}</tbody></table></div>`;
  // Widths/heights go through CSSOM: the page CSP blocks inline style attributes.
  document.querySelectorAll('#report-operators [data-w]').forEach(el=>el.style.width=el.dataset.w+'%');
  }catch(e){flash(e.message,true)}
@@ -493,7 +499,7 @@ function signedOut(){if(setupMode||loginOpen())return;showLogin();}
 // What the previous person saw does not stay in the page for the next one.
 function forget(){
  state={};currentReport=null;currentSale=null;cashControlKey=null;lastActive=null;
- for(const id of ['hist-list','hist-summary','report-stats','report-operators','report-shifts','report-chart','report-chart-table','sale-body','cash-summary','cash-events','cash-controls','cash-open-sales','cart-items','product-list','employee-list','quick-products','capture-pending']){const el=$(id);if(el){el.innerHTML='';el._html=undefined;}}
+ for(const id of ['hist-list','hist-summary','report-stats','report-operators','report-shifts','report-movements','report-chart','report-chart-table','sale-body','cash-summary','cash-events','cash-controls','cash-open-sales','cart-items','product-list','employee-list','quick-products','capture-pending']){const el=$(id);if(el){el.innerHTML='';el._html=undefined;}}
  $('cash-received').value='';$('product-form').reset();$('employee-form').reset();
 }
 async function showLogin(){

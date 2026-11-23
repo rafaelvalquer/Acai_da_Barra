@@ -39,11 +39,14 @@ class ReportService {
       const name=x.operator_name||'Não identificado';const op=byOperator.get(name)||{name,totalCents:0,count:0};op.totalCents+=x.total_cents;op.count++;byOperator.set(name,op);
     }
     const shifts=inRange(await r.cash.shiftsOpenedBetween(addDays(from,-1),addDays(to,2)),from,to,'opened_at');
+    const movements=inRange(await r.cash.eventsBetween(addDays(from,-1),addDays(to,2)),from,to,'created_at').map(e=>({id:e.id,shiftId:e.shift_id,kind:e.kind,amountCents:Number(e.amount_cents),note:e.note||'',createdAt:e.created_at,operatorName:e.operator_name||null}));
+    const total=kind=>movements.filter(e=>e.kind===kind);
+    const movementTotals={withdrawalsCents:total('withdrawal').reduce((a,e)=>a+e.amountCents,0),withdrawalsCount:total('withdrawal').length,suppliesCents:total('supply').reduce((a,e)=>a+e.amountCents,0),suppliesCount:total('supply').length};
     const totalCents=sum(done);
     return {period,date,from,to,today:dateRangeToday(),totalCents,count:done.length,avgTicketCents:done.length?Math.round(totalCents/done.length):0,
       grams:items.filter(x=>x.kind==='weight').reduce((s,x)=>s+(x.grams||0),0),methods,
       canceled:{count:canceled.length,totalCents:sum(canceled)},manual:{count:manual.length,totalCents:sum(manual)},
-      byDay:[...byDay.values()],byOperator:[...byOperator.values()].sort((a,b)=>b.totalCents-a.totalCents),sales,shifts};
+      byDay:[...byDay.values()],byOperator:[...byOperator.values()].sort((a,b)=>b.totalCents-a.totalCents),sales,shifts,movements,movementTotals};
   }
 }
 module.exports={ReportService};
