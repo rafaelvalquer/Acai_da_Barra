@@ -30,8 +30,10 @@ class CashService {
   async shiftTotals(shiftId,r=this.ctx.r){
     const methods=emptyMethods();let salesCount=0,canceledCount=0;
     // Three independent reads, sent together (one round trip instead of three on a cloud database).
-    const [byMethod,suppliesCents,withdrawalsCents]=await Promise.all([r.cash.salesByMethod(shiftId),r.cash.moved(shiftId,'supply'),r.cash.moved(shiftId,'withdrawal')]);
-    for(const x of byMethod){if(x.status==='done'){methods[x.method]+=x.amount;salesCount+=x.n;}else canceledCount+=x.n;}
+    const [byMethod,counts,suppliesCents,withdrawalsCents]=await Promise.all([r.cash.salesByMethod(shiftId),r.cash.salesCounts(shiftId),r.cash.moved(shiftId,'supply'),r.cash.moved(shiftId,'withdrawal')]);
+    // Amounts come from the parts of each payment; the number of sales comes from the sales themselves.
+    for(const x of byMethod)if(x.status==='done')methods[x.method]+=Number(x.amount);
+    for(const x of counts){if(x.status==='done')salesCount+=Number(x.n);else canceledCount+=Number(x.n);}
     return {methods,totalCents:Object.values(methods).reduce((a,b)=>a+b,0),salesCount,canceledCount,suppliesCents,withdrawalsCents};
   }
   async cashSummary(){

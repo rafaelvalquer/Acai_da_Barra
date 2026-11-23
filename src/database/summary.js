@@ -9,6 +9,8 @@ async function summarize(q){
   for(const t of TABLES)if(tables.has(t.name))counts[t.name]=n((await q.get(`SELECT COUNT(*) AS n FROM ${t.name}`))?.n);
   const one=async(sql,p=[])=>tables.has(sql.match(/FROM (\w+)/)[1])?(await q.get(sql,p))||{}:{};
   const sales=await one("SELECT SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done,SUM(CASE WHEN status='canceled' THEN 1 ELSE 0 END) AS canceled,SUM(CASE WHEN status='done' THEN total_cents ELSE 0 END) AS cents,MAX(created_at) AS last FROM sales");
+  // Finished sales whose payment parts do not add up to their total (or that have none): must always be zero.
+  const unpaid=tables.has('sale_payments')&&tables.has('sales')?(await q.get("SELECT COUNT(*) AS n FROM sales s WHERE s.status='done' AND s.total_cents<>COALESCE((SELECT SUM(p.amount_cents) FROM sale_payments p WHERE p.sale_id=s.id),-1)"))||{}:{};
   const shifts=await one('SELECT COUNT(*) AS total,SUM(CASE WHEN closed_at IS NULL THEN 1 ELSE 0 END) AS open FROM shifts');
   const cash=await one("SELECT SUM(CASE WHEN kind='supply' THEN amount_cents ELSE 0 END) AS supply,SUM(CASE WHEN kind='withdrawal' THEN amount_cents ELSE 0 END) AS withdrawal FROM cash_events");
   const drafts=tables.has('draft_sales')?await one("SELECT COUNT(*) AS n FROM draft_sales WHERE status='open'"):{};
@@ -17,6 +19,7 @@ async function summarize(q){
   const employees=await one('SELECT SUM(CASE WHEN active=1 THEN 1 ELSE 0 END) AS active FROM employees');
   return {counts,
     sales:{done:n(sales.done),canceled:n(sales.canceled),doneCents:n(sales.cents),lastAt:sales.last?new Date(sales.last).toISOString():null},
+    payments:{unbalancedSales:n(unpaid.n)},
     shifts:{total:n(shifts.total),open:n(shifts.open)},
     cash:{supplyCents:n(cash.supply),withdrawalCents:n(cash.withdrawal)},
     openSales:{sales:n(drafts.n),items:n(draftItems.n)},

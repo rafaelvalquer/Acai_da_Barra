@@ -80,8 +80,31 @@ const STEPS=[
   CREATE TABLE IF NOT EXISTS shift_reconciliation_items(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,reconciliation_id INTEGER NOT NULL REFERENCES shift_reconciliations(id),
     method TEXT NOT NULL CHECK (method IN ('cash','pix','credit','debit')),counted_cents INTEGER NOT NULL CHECK (counted_cents>=0),expected_cents INTEGER NOT NULL CHECK (expected_cents>=0),
     difference_cents INTEGER NOT NULL,UNIQUE(reconciliation_id,method),CHECK (difference_cents=counted_cents-expected_cents));
-  CREATE INDEX IF NOT EXISTS shift_reconciliation_items_rec ON shift_reconciliation_items(reconciliation_id);`);}
+  CREATE INDEX IF NOT EXISTS shift_reconciliation_items_rec ON shift_reconciliation_items(reconciliation_id);`);},
+  // 8: payment of a sale in one to four parts, at most one per method (src/services/PaymentService.js). Every sale has
+  // its rows here, the ones made before too (one row with the sale's method and total, cash keeping the amount
+  // received and the change). The sale's own method stays: the method of a single part, or 'mixed'. Stock, shifts and
+  // closings are not touched. Idempotent: a sale that already has its rows gets none.
+  async q=>{
+    await q.exec(`CREATE TABLE IF NOT EXISTS sale_payments(id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,sale_id INTEGER NOT NULL REFERENCES sales(id),
+      method TEXT NOT NULL CHECK (method IN ('cash','pix','credit','debit')),amount_cents INTEGER NOT NULL CHECK (amount_cents>0),received_cents INTEGER,change_cents INTEGER,created_at TEXT NOT NULL,
+      UNIQUE(sale_id,method),
+      CHECK (method='cash' OR (received_cents IS NULL AND change_cents IS NULL)),
+      CHECK ((received_cents IS NULL AND change_cents IS NULL) OR (received_cents IS NOT NULL AND change_cents IS NOT NULL AND received_cents>=amount_cents AND change_cents=received_cents-amount_cents)));
+      CREATE INDEX IF NOT EXISTS sale_payments_sale ON sale_payments(sale_id);`);
+    await backfillSalePayments(q);
+  }
 ];
+// One row per sale that has none (step 8).
+async function backfillSalePayments(q){
+  const rows=await q.all(`SELECT s.id,s.method,s.total_cents,s.created_at,s.received_cents,s.change_cents FROM sales s WHERE s.method IN ('cash','pix','credit','debit') AND s.total_cents>0
+    AND NOT EXISTS (SELECT 1 FROM sale_payments p WHERE p.sale_id=s.id) ORDER BY s.id`);
+  for(const s of rows){
+    const cash=s.method==='cash'&&s.received_cents!==null&&s.received_cents!==undefined&&s.received_cents>=s.total_cents;
+    await q.run('INSERT INTO sale_payments(uuid,sale_id,method,amount_cents,received_cents,change_cents,created_at) VALUES(?,?,?,?,?,?,?)',
+      [randomUUID(),s.id,s.method,s.total_cents,cash?s.received_cents:null,cash?s.received_cents-s.total_cents:null,s.created_at]);
+  }
+}
 // until: stops at that version (tests and old backups rebuilt at the version they were made in).
 // A database already at a version this program does not know (written by a newer PDV) is never opened: the newer
 // version may keep things this one would ignore or undo.

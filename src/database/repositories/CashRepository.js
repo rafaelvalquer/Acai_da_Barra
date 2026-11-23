@@ -7,7 +7,10 @@ class CashRepository {
   setActiveDraft(shiftId,draftId){return this.q.run('UPDATE shifts SET active_draft_id=? WHERE id=?',[draftId,shiftId]);}
   close(id,{closedAt,countedCents,expectedCents,closedBy}){return this.q.run('UPDATE shifts SET closed_at=?,counted_cents=?,expected_cents=?,difference_cents=?,closed_by=?,active_draft_id=NULL WHERE id=?',[closedAt,countedCents,expectedCents,countedCents-expectedCents,closedBy,id]);}
   insertEvent({shiftId,kind,amountCents,note,createdAt,operatorId}){return this.q.run('INSERT INTO cash_events(uuid,shift_id,kind,amount_cents,note,created_at,operator_id) VALUES(?,?,?,?,?,?,?)',[randomUUID(),shiftId,kind,amountCents,note,createdAt,operatorId]);}
-  salesByMethod(shiftId){return this.q.all('SELECT method,status,COUNT(*) AS n,COALESCE(SUM(total_cents),0) AS amount FROM sales WHERE shift_id=? GROUP BY method,status',[shiftId]);}
+  // What each payment method received in the shift's sales, from the parts of the payment (a sale paid in two
+  // methods counts in both, each with its own amount). Counting sales is salesCounts: never count them here.
+  salesByMethod(shiftId){return this.q.all('SELECT p.method,s.status,COALESCE(SUM(p.amount_cents),0) AS amount FROM sale_payments p JOIN sales s ON s.id=p.sale_id WHERE s.shift_id=? GROUP BY p.method,s.status',[shiftId]);}
+  salesCounts(shiftId){return this.q.all('SELECT status,COUNT(*) AS n FROM sales WHERE shift_id=? GROUP BY status',[shiftId]);}
   async moved(shiftId,kind){return (await this.q.get('SELECT COALESCE(SUM(amount_cents),0) AS amount FROM cash_events WHERE shift_id=? AND kind=?',[shiftId,kind])).amount;}
   events(shiftId){return this.q.all('SELECT c.id,c.shift_id,c.kind,c.amount_cents,c.note,c.created_at,c.operator_id,e.name AS operator_name FROM cash_events c LEFT JOIN employees e ON e.id=c.operator_id WHERE c.shift_id=? ORDER BY c.id DESC LIMIT 80',[shiftId]);}
   shiftsOpenedBetween(from,to){return this.q.all('SELECT sh.*,o.name AS opened_by_name,c.name AS closed_by_name FROM shifts sh LEFT JOIN employees o ON o.id=sh.opened_by LEFT JOIN employees c ON c.id=sh.closed_by WHERE sh.opened_at>=? AND sh.opened_at<? ORDER BY sh.id DESC',[from,to]);}

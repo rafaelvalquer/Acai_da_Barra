@@ -248,12 +248,13 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
           // Without the reports, only the sales of the open shift.
           if(!can('reports.view'))filter.onlyShift=(await db.shift())?.id||0;
           const history=await db.salesHistory(filter);
-          return send(res,200,filter.onlyShift!==undefined?Policy.salesOfShift(history,identity,{strict:await db.strictBlind()}):history);
+          // Whoever may not see the shift's totals gets no payment method of any sale, whatever period they ask for.
+          return send(res,200,Policy.salesOfShift(history,identity,{strict:await db.strictBlind()}));
         }
         case '/api/sales/detail':{
           const d=await db.saleDetail(q.id);
           if(!can('reports.view')&&d.shift_id!==(await db.shift())?.id){denied(identity,'reports.view',pathname);throw Authz.httpError(403,Authz.DENIED,{permission:'reports.view',needsAdmin:true});}
-          return send(res,200,can('reports.view')?d:Policy.salesOfShift(d,identity,{strict:await db.strictBlind()}));
+          return send(res,200,Policy.salesOfShift(d,identity,{strict:await db.strictBlind()}));
         }
         case '/api/shift/closings':return send(res,200,await closingsList(identity,pathname));
         case '/api/shift/closings/report':return send(res,200,await closingReport(identity,pathname,q));
@@ -334,10 +335,12 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
       case '/api/cart/manual-value':result=await store.addManualValue(b.saleId,b.amount);break;
       case '/api/cart/quantity':result=await store.setQuantity(b.saleId,b.key,b.quantity);break;
       case '/api/cart/remove':result=await store.removeDraftSaleItem(b.saleId,b.key);break;
-      case '/api/checkout':result=await store.checkoutDraftSale(b.saleId,b.method,b.uuid,b.received,b.revision);
+      case '/api/checkout':result=await store.checkoutDraftSale(b.saleId,b.method,b.uuid,b.received,b.revision,b.payments);
         if(identity.kind==='admin'&&!result.duplicate)await audit({username:name,action:'venda_admin',detail:{venda:result.sale?.id}});break;
-      case '/api/sales/cancel':result=await store.cancelSale(b.id,b.reason);await audit({username:name,action:'venda_cancelada',detail:{venda:result.id,motivo:result.cancel_reason}});break;
-      case '/api/sales/correct':result=await store.correctSale(b.id,b.reason,{select:scale.idle()});await audit({username:name,action:'venda_corrigida',detail:{venda:result.sale?.id,motivo:result.sale?.cancel_reason}});break;
+      case '/api/sales/cancel':result=await store.cancelSale(b.id,b.reason);await audit({username:name,action:'venda_cancelada',detail:{venda:result.id,motivo:result.cancel_reason}});
+        result=Policy.salesOfShift(result,identity,{strict:await db.strictBlind()});break;
+      case '/api/sales/correct':result=await store.correctSale(b.id,b.reason,{select:scale.idle()});await audit({username:name,action:'venda_corrigida',detail:{venda:result.sale?.id,motivo:result.sale?.cancel_reason}});
+        result={...result,sale:Policy.salesOfShift(result.sale,identity,{strict:await db.strictBlind()})};break;
       case '/api/scale/pending/retry':{
         const p=takePending(b.captureId);
         try{result=await store.addWeighed(p.saleId,p.grams,p.captureId);}catch(err){p.error=err.message;throw err;}

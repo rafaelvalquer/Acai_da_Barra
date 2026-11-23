@@ -43,7 +43,7 @@ function report(rep,identity,opts){
 // (adding them up by method would give the drawer balance and the Pix and card totals).
 function salesOfShift(sale,identity,opts){
   if(seesExpected(identity,opts)||!sale)return sale;
-  const strip=s=>({...s,method:null,received_cents:null,change_cents:null});
+  const strip=s=>({...s,method:null,received_cents:null,change_cents:null,...(s&&Array.isArray(s.payments)?{payments:[]}:{})});
   return Array.isArray(sale.sales)?{...sale,sales:sale.sales.map(strip)}:strip(sale);
 }
 // A closing without its amounts: only whether the count matched.

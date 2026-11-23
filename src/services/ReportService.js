@@ -25,8 +25,11 @@ class ReportService {
     const r=this.ctx.r;const period=options.period||'day',date=options.date||dateRangeToday();const {from,to}=periodRange(period,date);
     const sales=await this.salesBetween(from,to);const done=sales.filter(x=>x.status==='done'),canceled=sales.filter(x=>x.status!=='done');
     const sum=rows=>rows.reduce((s,x)=>s+x.total_cents,0);
-    const methods=emptyMethods();for(const x of done)methods[x.method]+=x.total_cents;
+    // Revenue is the sales' own totals; how it was received comes from the parts of each payment (a sale paid in two
+    // methods adds to both and is still one sale, counted once).
     const doneIds=new Set(done.map(x=>x.id));
+    const methods=emptyMethods();
+    for(const p of await r.sales.donePaymentsBetween(addDays(from,-1),addDays(to,2)))if(doneIds.has(p.sale_id)&&p.method in methods)methods[p.method]+=Number(p.amount_cents);
     const items=(await r.sales.doneItemsBetween(addDays(from,-1),addDays(to,2))).filter(x=>doneIds.has(x.sale_id));
     const manual=items.filter(x=>x.manual);
     const byDay=new Map();for(let t=parseDay(from);t<=parseDay(to);t+=DAY_MS)byDay.set(fmtDay(t),{day:fmtDay(t),totalCents:0,count:0});

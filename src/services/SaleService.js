@@ -1,7 +1,7 @@
 'use strict';
 const {randomUUID}=require('node:crypto');
 const {readMoney,readWeight,calcTotal}=require('../protocol');
-const {assert,integer,now,pad2,sameName}=require('./util');
+const {assert,integer,now,pad2,sameName}=require('./util');const Pay=require('./PaymentService');
 // Value of a Promise.allSettled entry, or its error: reads sent together still fail in the order they are checked.
 const settled=x=>{if(x.status==='rejected')throw x.reason;return x.value;};
 const itemView=r=>({key:r.id,kind:r.kind,productId:r.product_id??undefined,label:r.label,grams:r.grams??undefined,quantity:r.quantity??undefined,unitCents:r.unit_cents,totalCents:r.total_cents,manual:!!r.manual,captureId:r.scale_capture_id??undefined});
@@ -126,10 +126,21 @@ class SaleService {
       return {discarded:d.id,activeSaleId:await this.activeSaleId(t)};
     });
   }
-  // Pays one open sale. The finished sale, its items, the stock and the end of the open sale are one transaction:
-  // on any failure nothing is written and the open sale keeps its items. Asking twice returns the first sale.
-  async checkoutDraftSale(saleId,method,requestId,received,revision){
-    const {ctx}=this;assert(['cash','pix','debit','credit'].includes(method),'Forma de pagamento inválida');
+  // A finished sale as the API sends it: its row and the parts of its payment (always at least one).
+  async withPayments(sale,r=this.ctx.r){return sale?{...sale,payments:Pay.viewAll(await r.sales.payments(sale.id))}:sale;}
+  // Pays one open sale in one to four parts (src/services/PaymentService.js). The contract of before still works:
+  // (method, received) is one part for the whole total. With payments (a list of {method,amount,received}) the method
+  // argument must be absent or agree with it. The finished sale, its items, its payment parts, the stock and the end of
+  // the open sale are one transaction: on any failure nothing is written and the open sale keeps its items. Asking
+  // twice (same request id, or the same open sale) returns the first sale, never a second charge and never a changed one.
+  async checkoutDraftSale(saleId,method,requestId,received,revision,payments){
+    const {ctx}=this;const split=payments!==undefined&&payments!==null;
+    if(split){
+      assert(Array.isArray(payments),'Formas de pagamento inválidas');
+      const named=method!==undefined&&method!==null&&method!=='';
+      assert(!named||(payments.length===1&&payments[0]&&payments[0].method===method),'A forma de pagamento informada não confere com a lista de pagamentos');
+      assert(received===undefined||received===null||received==='','Informe o valor recebido dentro da parcela em dinheiro');
+    }else assert(Pay.METHODS.includes(method),'Forma de pagamento inválida');
     const uuid=String(requestId||'');
     // Reads that do not depend on each other go out together (on a cloud database each one is a round trip); the
     // checks and their messages keep the order they always had.
@@ -137,26 +148,27 @@ class SaleService {
     const shift=settled(s);assert(shift,'Abra o caixa primeiro');
     assert(/^[0-9a-zA-Z-]{12,80}$/.test(uuid),'Identificador de venda inválido');
     const again=settled(byUuid)||settled(byDraft);
-    if(again)return {sale:again,duplicate:true,activeSaleId:await this.activeSaleId()};
+    if(again)return {sale:await this.withPayments(again),duplicate:true,activeSaleId:await this.activeSaleId()};
     const [open,operator]=await Promise.allSettled([this.requireOpenSale(saleId),ctx.employees.requireOperator()]);
     const d=settled(open);
     // The total the operator confirmed must still be the total: a weighing that arrived meanwhile stops the charge.
     if(revision!==undefined&&revision!==null&&revision!=='')assert(integer(revision,'Revisão',0,1e9)===d.revision,`A venda ${d.label} mudou depois da conferência. Confira o total e cobre de novo.`);
     const items=await this.draftItems(d.id);assert(items.length>0,`A venda ${d.label} não tem itens`);const op=settled(operator);
     const total=items.reduce((s,x)=>s+x.totalCents,0);assert(total>0,'Venda com total inválido');
-    // Amount handed over by the customer, optional and only for cash; the drawer still counts the sale total.
-    let receivedCents=null;
-    if(method==='cash'&&received!==undefined&&received!==null&&received!==''){receivedCents=readMoney(received);assert(receivedCents>=total,'Valor recebido menor que o total da venda');}
+    // The parts are checked against the total calculated here from the stored items, never against anything the browser sent.
+    const parts=split?Pay.normalize(payments,total):Pay.single(method,received,total);
+    const cash=Pay.cashColumns(parts);
     const id=await ctx.tx(async t=>{
       await ctx.stock.takeForSale(t,items);
-      const id=await t.sales.createSale({uuid,shiftId:shift.id,createdAt:now(),method,totalCents:total,operatorId:op.id,receivedCents,changeCents:receivedCents===null?null:receivedCents-total,draftSaleId:d.id});
+      const id=await t.sales.createSale({uuid,shiftId:shift.id,createdAt:now(),method:Pay.saleMethod(parts),totalCents:total,operatorId:op.id,receivedCents:cash.receivedCents,changeCents:cash.changeCents,draftSaleId:d.id});
       for(const item of items)await t.sales.addSaleItem(id,item);
+      const at=now();for(const p of parts)await t.sales.addPayment(id,p,at);
       assert(await t.openSales.complete(d.id,{at:now(),saleId:id}),`A venda ${d.label} já foi cobrada`);
       if((await t.cash.openShift()).active_draft_id===d.id)await this.chooseActive(t,shift);
       return id;
     });
     const [sale,activeSaleId]=await Promise.all([ctx.r.sales.findById(id),this.activeSaleId()]);
-    return {sale,duplicate:false,activeSaleId};
+    return {sale:await this.withPayments(sale),duplicate:false,activeSaleId};
   }
   async cancelCheck(id,reason){
     const n=integer(id,'Venda',1);const why=String(reason||'').trim();assert(why.length>=3&&why.length<=180,'Informe o motivo do cancelamento');
@@ -187,7 +199,7 @@ class SaleService {
   async saleDetail(id){
     const n=integer(id,'Venda',1);const r=this.ctx.r;const sale=await r.sales.detail(n);assert(sale,'Venda não encontrada');
     const shift=await this.ctx.cash.shift();
-    return {...sale,items:await r.sales.items(n),cancelable:sale.status==='done'&&!!shift&&shift.id===sale.shift_id};
+    return {...sale,items:await r.sales.items(n),payments:Pay.viewAll(await r.sales.payments(n)),cancelable:sale.status==='done'&&!!shift&&shift.id===sale.shift_id};
   }
 }
 module.exports={SaleService,itemView};

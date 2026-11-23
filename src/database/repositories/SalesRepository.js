@@ -9,6 +9,20 @@ class SalesRepository {
     return (await this.q.get('INSERT INTO sales(uuid,shift_id,created_at,method,total_cents,operator_id,received_cents,change_cents,draft_sale_id) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id',
       [s.uuid,s.shiftId,s.createdAt,s.method,s.totalCents,s.operatorId,s.receivedCents,s.changeCents,s.draftSaleId])).id;
   }
+  // The parts of a sale's payment (src/services/PaymentService.js), always in the same order.
+  addPayment(saleId,p,createdAt){
+    return this.q.run('INSERT INTO sale_payments(uuid,sale_id,method,amount_cents,received_cents,change_cents,created_at) VALUES(?,?,?,?,?,?,?)',
+      [require('node:crypto').randomUUID(),saleId,p.method,p.amountCents,p.receivedCents??null,p.changeCents??null,createdAt]);
+  }
+  payments(saleId){return this.q.all('SELECT * FROM sale_payments WHERE sale_id=? ORDER BY id',[saleId]);}
+  async paymentsBySale(saleIds){
+    const out=new Map(saleIds.map(id=>[id,[]]));
+    for(let i=0;i<saleIds.length;i+=500){
+      const part=saleIds.slice(i,i+500);
+      for(const p of await this.q.all(`SELECT * FROM sale_payments WHERE sale_id IN (${part.map(()=>'?').join(',')}) ORDER BY id`,part))out.get(p.sale_id)?.push(p);
+    }
+    return out;
+  }
   addSaleItem(saleId,x){return this.q.run('INSERT INTO sale_items(sale_id,product_id,kind,label,grams,quantity,unit_cents,total_cents,manual) VALUES(?,?,?,?,?,?,?,?,?)',
     [saleId,x.productId??null,x.kind,x.label,x.grams??null,x.quantity??null,x.unitCents,x.totalCents,x.manual?1:0]);}
   items(saleId){return this.q.all('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id',[saleId]);}
@@ -20,6 +34,7 @@ class SalesRepository {
       FROM sales s LEFT JOIN employees e ON e.id=s.operator_id WHERE ${where} ORDER BY s.id DESC`,params);
   }
   detail(id){return this.q.get('SELECT s.*,e.name AS operator_name,c.name AS canceled_by_name,d.label AS draft_label FROM sales s LEFT JOIN employees e ON e.id=s.operator_id LEFT JOIN employees c ON c.id=s.canceled_by LEFT JOIN draft_sales d ON d.id=s.draft_sale_id WHERE s.id=?',[id]);}
+  donePaymentsBetween(from,to){return this.q.all("SELECT p.sale_id,p.method,p.amount_cents FROM sale_payments p JOIN sales s ON s.id=p.sale_id WHERE s.status='done' AND s.created_at>=? AND s.created_at<?",[from,to]);}
   doneItemsBetween(from,to){return this.q.all("SELECT i.sale_id,i.kind,i.grams,i.manual,i.total_cents FROM sale_items i JOIN sales s ON s.id=i.sale_id WHERE s.status='done' AND s.created_at>=? AND s.created_at<?",[from,to]);}
 }
 module.exports={SalesRepository};

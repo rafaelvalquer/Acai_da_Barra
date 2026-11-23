@@ -14,15 +14,15 @@ const {fakeCloud,settled,sameAsCloud,withCopy}=require('./cloud-helpers');
 const FILES='backups em arquivo e a cópia na nuvem são do banco local (SQLite)';
 // The database as the previous version (v5) left it: no permissions table, schema at 5.
 async function backToV5(s){
-  if(isPostgres)await s.adapter.exec('DROP TABLE employee_permissions; DELETE FROM schema_migrations WHERE version>=6;');
-  else await s.adapter.exec('DROP TABLE employee_permissions; PRAGMA user_version=5;');
+  if(isPostgres)await s.adapter.exec('DROP TABLE sale_payments; DROP TABLE shift_reconciliation_items; DROP TABLE shift_reconciliations; DROP TABLE employee_permissions; DELETE FROM schema_migrations WHERE version>=6;');
+  else await s.adapter.exec('DROP TABLE sale_payments; DROP TABLE shift_reconciliation_items; DROP TABLE shift_reconciliations; DROP TABLE employee_permissions; PRAGMA user_version=5;');
 }
 // The open sales as the till lists them, and the items of the one on the scale.
 const openSales=async s=>{const st=await s.readState();return {list:st.openSales,cart:st.cart,total:st.cartTotalCents};};
 
 test('v5 → v6 keeps the open shift, the open sales and their items, and gives nobody a permission or a PIN',async()=>{
   const box=await tempStore('luminor-v6-');try{
-    let s=box.s;assert.equal(SCHEMA_VERSION,7);
+    let s=box.s;assert.equal(SCHEMA_VERSION,8);
     const ana=(await s.saveEmployee({name:'Ana'})).id;await s.saveEmployee({name:'Bruno'});await s.openShift('100,00',ana);
     const a=await s.activeSaleId();await s.addManualWeight(a,'0,500');
     const water=(await s.product({name:'Água',price:'5,00',stock:10})).id;const b=(await s.createDraftSale()).id;await s.addUnit(b,water,2);
