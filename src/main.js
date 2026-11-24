@@ -8,13 +8,15 @@ const {AdminSettingsService}=require('./config/AdminSettingsService');const {Adm
 const {DatabaseManager}=require('./database/DatabaseManager');const {importLegacySqlite}=require('./database/importLegacy');
 const {recoverInterruptedRestore}=require('./backup/RestoreService');
 const {ScaleDriver}=require('./scale');const {createServer,HOST}=require('./server');const {AdminSystem}=require('./admin/AdminSystem');
-const {Logger}=require('./logger');
+const {Logger}=require('./logger');const {scaleLog}=require('./scaleLog');
 function startupError(config,e){
   try{const dir=config?.paths?.logs;if(dir){fs.mkdirSync(dir,{recursive:true});fs.appendFileSync(path.join(dir,'erros-inicializacao.log'),`[${new Date().toISOString()}] ${e.stack||e.message}\n`);}}catch(_){}
 }
 // simulator: the scale simulator of the till (src/server.js), off unless PDV_SCALE_SIMULATOR=true.
-async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),listen=true,clock,hooks,connect,schedule=true,syncTiming,simulator}={}){
+async function start({config=loadConfig(),log=null,scale=null,listen=true,clock,hooks,connect,schedule=true,syncTiming,simulator}={}){
   prepareHome(config);log=log||new Logger({dir:config.paths.logs});
+  scale=scale||new ScaleDriver(config.scale||{});
+  const trace=config.scale?.log?scaleLog(config.paths.logs):null;if(trace)scale.onEvent=trace.write;
   const vault=new SecretVault(config.vaultFile,{mode:config.vault});await vault.load();
   const adminStore=await AdminStore.open(config.adminDbPath);
   const settings=new AdminSettingsService({store:adminStore,vault,config});
@@ -33,7 +35,8 @@ async function start({config=loadConfig(),log=null,scale=new ScaleDriver(),liste
   system.autoConnectScale();
   let stopping=null;
   const stop=()=>stopping||(stopping=(async()=>{
-    await converting;scale.disconnect();const closed=new Promise(r=>server.close(()=>r()));server.closeAllConnections?.();await closed;
+    // A weighing on its way to the database is written before it closes.
+    await converting;scale.disconnect();await server.settle(5000);trace?.flush();const closed=new Promise(r=>server.close(()=>r()));server.closeAllConnections?.();await closed;
     await system.stop();await db.close();await adminStore.close();
   })());
   return {config,db,databases,scale,system,server,adminStore,vault,log,stop,converting};

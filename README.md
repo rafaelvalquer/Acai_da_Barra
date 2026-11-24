@@ -261,6 +261,8 @@ A comunicação serial real depende de um acessório/interface compatível insta
 5. Na aba **Balança**, clicar em "Buscar portas COM", selecionar a porta, velocidade e "Conectar".
 6. Validar todas as situações com pesos padrões e comparar peso mostrado na balança, peso recebido e valor calculado.
 
+**Leitura e pesagens consecutivas.** O PDV envia um `ENQ` por vez a cada 150 ms, aceita o peso com duas leituras estáveis iguais e libera a próxima pesagem quando vê o prato vazio (zero estável, resíduo até 10 g ou negativo). Porta que cai é reaberta sozinha. Causa da demora relatada, ajustes, diagnóstico, homologação (ainda **pendente** na balança física) e rollback: [docs/diagnostico-performance-balanca.md](docs/diagnostico-performance-balanca.md).
+
 O protocolo Prt5, documentado no manual do fabricante, responde à solicitação `ENQ` com:
 
 | Payload | Significado |
@@ -314,7 +316,7 @@ C:\ProgramData\LuminorPDV ─ data · backups · logs · config (admin.sqlite, c
 
 Todas as rotas `POST` exigem o cabeçalho `X-Luminor-Token` obtido em `GET /api/session`. `GET /api/health` responde se o PDV está no ar (versão e banco), sem dados.
 
-Cada rota do caixa tem uma permissão (seção 4.1; `GET /api/state` e `POST /api/operator` pedem só uma sessão). A ordem das checagens é: manutenção ou banco fora do ar (503), token da página (403), sessão (401 com `auth: "login"` ou `auth: "locked"`), permissão (403 com `permission` e `needsAdmin: true`) e só então a operação. Quem é a pessoa vem sempre da sessão, nunca de um campo enviado pelo navegador. A lista de rotas e permissões está em `src/server.js` (`GET_ROUTES` e `POST_ROUTES`).
+Cada rota do caixa tem uma permissão (seção 4.1; `GET /api/state`, `GET /api/scale/state` e `POST /api/operator` pedem só uma sessão). A ordem das checagens é: manutenção ou banco fora do ar (503), token da página (403), sessão (401 com `auth: "login"` ou `auth: "locked"`), permissão (403 com `permission` e `needsAdmin: true`) e só então a operação. Quem é a pessoa vem sempre da sessão, nunca de um campo enviado pelo navegador. A lista de rotas e permissões está em `src/server.js` (`GET_ROUTES` e `POST_ROUTES`).
 
 | Área | Rotas |
 | --- | --- |
@@ -325,6 +327,7 @@ Cada rota do caixa tem uma permissão (seção 4.1; `GET /api/state` e `POST /ap
 | Vendas abertas | `GET /api/open-sales` (lista e venda selecionada), `POST /api/open-sales/create`, `/api/open-sales/select` `{saleId}`, `/api/open-sales/rename` `{saleId, label}`, `/api/open-sales/discard` `{saleId}`, `/api/open-sales/transfer-item` `{saleId, key, toSaleId}` (`toSaleId: "new"` abre uma venda nova). Criar e selecionar respondem 400 "Retire o produto da balança para trocar de venda." enquanto há peso no prato |
 | Itens da venda | `POST /api/cart/weight` `{saleId}` (só a venda selecionada), `/api/cart/unit` `{saleId, id, quantity}`, `/api/cart/manual-weight` `{saleId, weight}`, `/api/cart/manual-value` `{saleId, amount}`, `/api/cart/quantity` `{saleId, key, quantity}`, `/api/cart/remove` `{saleId, key}` |
 | Cobrança | `POST /api/checkout` `{saleId, method, uuid, received?, revision?}`: `received` só em dinheiro (a venda devolve `received_cents` e `change_cents`); `revision` é a versão da venda que o funcionário conferiu, e a cobrança é recusada se um item chegou depois. Repetir a cobrança da mesma venda devolve a venda já gravada (`duplicate: true`) |
+| Leitura da balança | `GET /api/scale/state` (só sessão: peso, `canSwitch`, `liveKey`; lida a cada 200 ms), `GET /api/scale/diagnostics` (`scale.manage`) |
 | Pesagens pendentes | `POST /api/scale/pending/retry` `{captureId}`, `/api/scale/pending/discard` `{captureId}`; `GET /api/state` traz `pendingCaptures` e `canSwitch` |
 | Vendas | `GET /api/sales?from=&to=&status=&q=`, `GET /api/sales/detail?id=` (inclui `draft_label`, o nome do atendimento), `POST /api/sales/cancel` `{id, reason}`, `POST /api/sales/correct` `{id, reason}` (devolve `draft`, a venda "Correção #N", e `selected`) |
 | Relatórios | `GET /api/report?period=day\|week\|month&date=AAAA-MM-DD` |

@@ -2,7 +2,7 @@
 const http=require('node:http');const fs=require('node:fs');const path=require('node:path');
 const {randomBytes}=require('node:crypto');
 const Authz=require('./auth/AuthorizationService');const Policy=require('./auth/CashVisibilityPolicy');
-const {readMoney}=require('./protocol');
+const {readMoney}=require('./protocol');const {summary}=require('./scale');
 // The amount of a movement for the log (already accepted by the store, so it parses).
 const readCents=v=>{try{return readMoney(v);}catch(_){return null;}};
 const HOST='127.0.0.1';
@@ -22,6 +22,8 @@ function serve(res,filename){
 // Every route needs a signed-in, unlocked session; the permission is checked before anything runs.
 const GET_ROUTES={
   '/api/state':null,                       // any session; what it shows depends on the permissions
+  '/api/scale/state':null,                 // the light, frequent read of the scale; the same visibility rules
+  '/api/scale/diagnostics':'scale.manage',
   '/api/open-sales':'screen.vendas',
   '/api/report':'reports.view',
   '/api/sales':'screen.historico',
@@ -72,16 +74,74 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
   const PosAuthView=auth.constructor.view||auth.view;const actorOf=auth.constructor.actor||auth.actor;
   const token=randomBytes(24).toString('hex');let lastAutoError='';
   // Weighings that could not be stored wait here for an explicit retry or discard; they are never dropped silently.
-  let pending=[];let capturing=false;
-  // One scale cycle goes to exactly one open sale: the store reads the sale on the scale and stores the weighing in
-  // the same step, so the destination can't change in between.
-  async function capture(reading,saleId,actor){
-    try{const sale=await db.as(actor).captureWeighing(reading,saleId);scale.consume();return sale;}
-    catch(err){
-      scale.consume();
-      pending=[...pending.filter(p=>p.captureId!==reading.captureId),{...reading,saleId:err.saleId??saleId,label:err.saleLabel||'',error:err.message,at:new Date().toISOString()}];
-      throw err;
-    }
+  let pending=[];
+  // Weighings being stored, one at a time in the order the cups were placed. inflight: by cycle id.
+  let queue=Promise.resolve();const inflight=new Map();let captureSeq=0,generation=0;
+  // The cycle that may not be captured now (nobody signed in, shift closed, auto-capture off): asked again shortly.
+  let refused={captureId:null,until:0,reason:''};
+  // For the diagnostic: time waiting for the database before the write, writing, and until a screen was told.
+  const timings={context:[],write:[],total:[],screen:[]};let unseen=null;
+  const timed=(list,ms)=>{list.push(ms);if(list.length>500)list.shift();};
+  const note=(type,data)=>scale.trace?.(type,data);
+  function enqueue(captureId,work){
+    const run=queue.then(work);queue=run.then(()=>{},()=>{});inflight.set(captureId,run);
+    const done=()=>{if(inflight.get(captureId)===run)inflight.delete(captureId);};run.then(done,done);
+    return run;
+  }
+  // Until nothing is on its way, including a weighing that arrived while waiting.
+  async function drain(){for(let q;q!==queue;){q=queue;await q;}}
+  function keepPending(reading,saleId,label,error){
+    pending=[...pending.filter(p=>p.captureId!==reading.captureId),{captureId:reading.captureId,grams:reading.grams,saleId,label:label||'',error,at:new Date().toISOString()}];
+    note('falha_gravacao',{captureId:reading.captureId,grams:reading.grams,saleId,erro:error});
+  }
+  function stored(reading,startedAt,writeAt,sale){
+    const now=Date.now();captureSeq++;timed(timings.write,now-writeAt);timed(timings.total,now-startedAt);unseen={captureId:reading.captureId,at:now};
+    note('pesagem_gravada',{captureId:reading.captureId,grams:reading.grams,saleId:sale.id,duplicada:!!sale.duplicate,gravacaoMs:now-writeAt,totalMs:now-startedAt});
+  }
+  // A screen was answered with the latest stored weighing: how long after the write.
+  function screenTold(){if(unseen){const ms=Date.now()-unseen.at;timed(timings.screen,ms);note('tela_atualizada',{captureId:unseen.captureId,ms});unseen=null;}}
+  // The "add weighing" button: the cycle is taken before the database is touched, and the store checks that the sale
+  // the person saw is still the one on the scale.
+  function captureByHand(reading,saleId,actor){
+    scale.consume(reading.captureId);const startedAt=Date.now(),gen=generation;
+    return enqueue(reading.captureId,async()=>{
+      try{const writeAt=Date.now();const sale=await db.as(actor).captureWeighing(reading,saleId);stored(reading,startedAt,writeAt,sale);return sale;}
+      catch(err){if(gen===generation){keepPending(reading,err.saleId??saleId,err.saleLabel,err.message);captureSeq++;}throw err;}
+    });
+  }
+  // Stable weight on the plate. Who is at the till, whether it may be captured and which sale it is for are all asked
+  // right now, so what happens to the plate or the screen while the database works changes none of them.
+  function captureAutomatically(){
+    if(maintenance())return;
+    const reading=scale.peek();if(!reading||inflight.has(reading.captureId))return;
+    if(refused.captureId===reading.captureId&&Date.now()<refused.until)return;
+    const startedAt=Date.now(),gen=generation;
+    const context=Promise.allSettled([auth.terminalActor(),db.getConfig(),db.shift(),db.activeSaleId()]);
+    enqueue(reading.captureId,async()=>{
+      const [actor,config,shift,active]=await context;timed(timings.context,Date.now()-startedAt);
+      // The data it was for is gone (restore).
+      if(gen!==generation)return;
+      // Not allowed now: the reading stays on the scale (nothing is lost) and goes in when it is.
+      const reason=actor.status==='fulfilled'&&!actor.value?'Ninguém no caixa com permissão de lançar (ou caixa bloqueado)':
+        config.status==='fulfilled'&&!config.value.autoCapture?'Lançamento automático desligado':
+        shift.status==='fulfilled'&&!shift.value?'Caixa fechado':null;
+      if(reason){
+        if(refused.captureId!==reading.captureId||refused.reason!==reason)note('captura_bloqueada',{captureId:reading.captureId,motivo:reason});
+        refused={captureId:reading.captureId,until:Date.now()+250,reason};return;
+      }
+      refused={captureId:null,until:0,reason:''};
+      // Only this cycle: a cup placed meanwhile keeps waiting for its own capture.
+      scale.consume(reading.captureId);
+      const saleId=active.status==='fulfilled'?active.value:null;
+      try{
+        const failed=[actor,config,shift,active].find(x=>x.status==='rejected');if(failed)throw failed.reason;
+        const writeAt=Date.now();const sale=await db.as(actor.value).addWeighed(saleId,reading.grams,reading.captureId);
+        stored(reading,startedAt,writeAt,sale);lastAutoError='';
+      }catch(err){
+        const label=saleId?(await db.draftRow(saleId).catch(()=>null))?.label:'';
+        if(gen===generation){keepPending(reading,saleId,label,err.message);captureSeq++;lastAutoError=err.message;}
+      }
+    }).catch(err=>{lastAutoError=err.message;});
   }
   function takePending(captureId){const p=pending.find(x=>x.captureId===captureId);if(!p)throw Error('Pesagem pendente não encontrada');return p;}
   // The weighing destination only changes with nothing on the plate, so a cup placed for one customer can't
@@ -99,21 +159,13 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
     audit({username:who(identity),action:'acesso_negado',ok:false,detail:{permissao:permission,rota:route}});
   }
   // After a restore the pending weighings belong to data that is gone.
-  if(system)system.onRestored=()=>{pending=[];lastAutoError='';};
+  if(system)system.onRestored=()=>{generation++;pending=[];lastAutoError='';captureSeq++;};
   // Automatic capture only for someone signed in who may put items in a sale. Otherwise (nobody signed in, the till
   // locked) the reading stays on the scale and goes in when that person types the PIN again: nothing is lost, and the
   // cycle id keeps it from going in twice.
-  scale.onReady=async()=>{
-    if(capturing||maintenance())return;capturing=true;
-    try{
-      const actor=await auth.terminalActor();if(!actor)return;
-      const config=await db.getConfig();if(!config.autoCapture||!(await db.shift()))return;
-      // Checked before consuming, so with the shift closed or auto-capture off the reading waits on the scale.
-      const reading=scale.peek();if(!reading)return;
-      try{await capture(reading,null,actor);lastAutoError='';}catch(err){lastAutoError=err.message;}
-    }catch(err){lastAutoError=err.message;}
-    finally{capturing=false;}
-  };
+  scale.onReady=()=>{try{captureAutomatically();}catch(err){lastAutoError=err.message;}};
+  // Whether the screen must read its state again: something was written, or a weighing finished or failed.
+  const liveKey=()=>`${db.adapter.writes??''}:${captureSeq}:${pending.length}`;
   // The person of this request, checked for the permission (null: any signed-in, unlocked session).
   async function allowed(req,route,permission,{touch=true}={}){
     const identity=await auth.identify(req,{touch});
@@ -235,13 +287,24 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
     if(pathname.startsWith('/api/auth/'))return authRoutes(req,res,pathname);
     if(req.method==='GET'&&pathname in GET_ROUTES){
       // The screen reads its state every second: that alone does not keep the session alive.
-      const identity=await allowed(req,pathname,GET_ROUTES[pathname],{touch:pathname!=='/api/state'});
+      const identity=await allowed(req,pathname,GET_ROUTES[pathname],{touch:pathname!=='/api/state'&&pathname!=='/api/scale/state'});
       const can=p=>Authz.hasPermission(identity,p);
       switch(pathname){
-        case '/api/state':return send(res,200,{...visibleState(await db.getState(scale),identity,{brief:system?await system.brief():null}),
-          auth:PosAuthView(identity),canSwitch:scale.idle(),pendingCaptures:can('sales.create')?pending:[],lastAutoError:can('sales.create')?lastAutoError:'',
-          // Whether this person may use the scale simulator (the card on the Balança screen).
-          simulator:simulator==='open'||(simulator==='admin'&&can('scale.manage'))});
+        case '/api/state':{
+          // Taken before reading: a write that lands meanwhile makes the screen read once more, never miss it.
+          const key=liveKey();
+          const state=visibleState(await db.getState(scale),identity,{brief:system?await system.brief():null});
+          screenTold();
+          return send(res,200,{...state,liveKey:key,auth:PosAuthView(identity),canSwitch:scale.idle(),pendingCaptures:can('sales.create')?pending:[],lastAutoError:can('sales.create')?lastAutoError:'',
+            // Whether this person may use the scale simulator (the card on the Balança screen).
+            simulator:simulator==='open'||(simulator==='admin'&&can('scale.manage'))});
+        }
+        // No queries of its own beyond the session check: the weight, and whether the full state changed.
+        case '/api/scale/state':return send(res,200,{scale:scale.snapshot(),canSwitch:scale.idle(),liveKey:liveKey(),lastAutoError:can('sales.create')?lastAutoError:''});
+        // Technical only: no names, no passwords, no sales values.
+        case '/api/scale/diagnostics':return send(res,200,{...scale.diagnostics(),
+          captures:{inFlight:inflight.size,pending:pending.map(p=>({captureId:p.captureId,grams:p.grams,error:p.error,at:p.at})),lastRefusal:refused.reason||null,
+            databaseWait:summary(timings.context),write:summary(timings.write),stableToStored:summary(timings.total),storedToScreen:summary(timings.screen)}});
         case '/api/open-sales':return send(res,200,{activeSaleId:await db.activeSaleId(),sales:await db.listDraftSales()});
         case '/api/report':return send(res,200,Policy.report(await db.report({period:q.period,date:q.date}),identity,{strict:await db.strictBlind()}));
         case '/api/sales':{
@@ -269,6 +332,8 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
     const identity=await allowed(req,pathname,POST_ROUTES[pathname]);
     const b=await readBody(req);
     const store=db.as(actorOf(identity));const name=who(identity);
+    // Weighings already taken are written first, so paying, discarding or switching never runs ahead of them.
+    if(!pathname.startsWith('/api/scale/'))await drain();
     let result;
     switch(pathname){
       case '/api/config':{
@@ -329,11 +394,18 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
       case '/api/cart/weight':{
         if(!(await db.shift()))throw Error('Abra o caixa primeiro');
         if(b.saleId!==await db.activeSaleId())throw Error('A balança está pesando para outra venda. Selecione esta venda antes de lançar o peso.');
+        // The automatic capture of this same cup may be on its way: wait for it, so the cup goes in once.
+        for(let r=scale.peek();r&&inflight.has(r.captureId);r=scale.peek())await inflight.get(r.captureId).catch(()=>{});
         const reading=scale.peek();if(!reading)throw Error('Aguarde um peso estável e novo ciclo de pesagem');
-        result=await capture(reading,b.saleId,actorOf(identity));lastAutoError='';break;
+        result=await captureByHand(reading,b.saleId,actorOf(identity));lastAutoError='';break;
       }
-      case '/api/cart/manual-weight':result=await store.addManualWeight(b.saleId,b.weight);break;
-      case '/api/cart/manual-value':result=await store.addManualValue(b.saleId,b.amount);break;
+      case '/api/cart/manual-weight':case '/api/cart/manual-value':{
+        // What is typed stands for what is on the plate: it must not be captured on top of it (scale back online).
+        const release=scale.hold();
+        try{result=pathname==='/api/cart/manual-weight'?await store.addManualWeight(b.saleId,b.weight):await store.addManualValue(b.saleId,b.amount);}
+        catch(err){release();throw err;}
+        break;
+      }
       case '/api/cart/quantity':result=await store.setQuantity(b.saleId,b.key,b.quantity);break;
       case '/api/cart/remove':result=await store.removeDraftSaleItem(b.saleId,b.key);break;
       case '/api/checkout':result=await store.checkoutDraftSale(b.saleId,b.method,b.uuid,b.received,b.revision,b.payments);
@@ -344,10 +416,13 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
         result={...result,sale:Policy.salesOfShift(result.sale,identity,{strict:await db.strictBlind()})};break;
       case '/api/scale/pending/retry':{
         const p=takePending(b.captureId);
-        try{result=await store.addWeighed(p.saleId,p.grams,p.captureId);}catch(err){p.error=err.message;throw err;}
-        pending=pending.filter(x=>x!==p);lastAutoError='';break;
+        try{
+          if(!p.saleId)throw Error('Não foi possível saber para qual venda era esta pesagem. Descarte e lance de novo.');
+          result=await store.addWeighed(p.saleId,p.grams,p.captureId);
+        }catch(err){p.error=err.message;throw err;}
+        pending=pending.filter(x=>x!==p);captureSeq++;lastAutoError='';break;
       }
-      case '/api/scale/pending/discard':{const p=takePending(b.captureId);pending=pending.filter(x=>x!==p);console.warn(`Pesagem pendente descartada: ${p.grams} g (${p.label||p.saleId}) por ${name}`);result=true;break;}
+      case '/api/scale/pending/discard':{const p=takePending(b.captureId);pending=pending.filter(x=>x!==p);captureSeq++;console.warn(`Pesagem pendente descartada: ${p.grams} g (${p.label||p.saleId}) por ${name}`);result=true;break;}
       case '/api/scale/demo':result=scale.demo();lastAutoError='';break;
       case '/api/scale/demo-weight':result=scale.setDemoGrams(Number(b.grams));break;
       case '/api/scale/connect':result=await scale.connect(b.path,b.baudRate||2400);lastAutoError='';if(system)system.rememberScale(b.path,b.baudRate||2400);break;
@@ -357,7 +432,8 @@ function createServer({db,scale,system=null,auth,simulator=process.env.PDV_SCALE
     await settle();
     send(res,200,{ok:true,result});
   }
-  async function settle(){for(let i=0;i<200&&capturing;i++)await new Promise(r=>setTimeout(r,2));}
+  // Waits (a moment, not forever) for the weighings on their way to the database.
+  async function settle(ms=400){if(!inflight.size)return;let timer;await Promise.race([queue,new Promise(r=>{timer=setTimeout(r,ms);})]);clearTimeout(timer);}
   const server=http.createServer((req,res)=>{
     const port=server.address()?.port;
     if(req.headers.host&&![`127.0.0.1:${port}`,`localhost:${port}`].includes(req.headers.host))return fail(res,403,'Host não permitido');

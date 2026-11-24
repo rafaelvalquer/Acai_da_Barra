@@ -34,6 +34,9 @@ function checkTime(v){
 function homePaths(home){
   return {home,data:path.join(home,'data'),backups:path.join(home,'backups'),logs:path.join(home,'logs'),config:path.join(home,'config'),tmp:path.join(home,'tmp')};
 }
+// A whole number inside the limits, or nothing (the default of src/scale.js stays): a typing mistake in the settings
+// file never stops the store from opening.
+const within=(value,min,max)=>{const n=Number(value);return value!==undefined&&value!==''&&Number.isInteger(n)&&n>=min&&n<=max?n:undefined;};
 function loadConfig(env=process.env){
   // LUMINOR_DATA_DIR is the folder name used up to v0.1; it still works as the home folder.
   const explicitHome=env.PDV_HOME||env.LUMINOR_DATA_DIR;
@@ -61,7 +64,10 @@ function loadConfig(env=process.env){
     // Administrator accounts and protected settings: apart from the commercial database, never inside a backup of it.
     adminDbPath:path.join(paths.config,'admin.sqlite'),vaultFile:path.join(paths.config,'cofre.dat'),
     vault:String(get('PDV_VAULT')||(process.platform==='win32'?'dpapi':'arquivo')).toLowerCase(),
-    backup:{enabled:flag(get('PDV_BACKUP_ENABLED'),true),time:checkTime(get('PDV_BACKUP_TIME')||'02:00'),retention:{daily,weekly:4,monthly:3}}
+    backup:{enabled:flag(get('PDV_BACKUP_ENABLED'),true),time:checkTime(get('PDV_BACKUP_TIME')||'02:00'),retention:{daily,weekly:4,monthly:3}},
+    // Timing of the scale reading (never the serial settings) and its technical log.
+    scale:{pollMs:within(get('PDV_SCALE_POLL_MS'),100,1000),stableReadings:within(get('PDV_SCALE_STABLE_READINGS'),2,5),
+      emptyReadings:within(get('PDV_SCALE_EMPTY_READINGS'),1,3),log:flag(get('PDV_SCALE_LOG'),false)}
   };
 }
 // Creates the folders and, on first start, a commented settings file with the defaults.
@@ -74,6 +80,8 @@ function prepareHome(config){
     'PDV_DATABASE_PROVIDER=sqlite','# PDV_SQLITE_PATH=',
     '# Backup automático diário: horário (HH:MM) e quantos dias manter.',
     'PDV_BACKUP_ENABLED=true','PDV_BACKUP_TIME=02:00','PDV_BACKUP_RETENTION_DAYS=7',
+    '# Leitura da balança (docs/diagnostico-performance-balanca.md). Deixe comentado para usar o padrão.',
+    '# PDV_SCALE_POLL_MS=150','# PDV_SCALE_STABLE_READINGS=2','# PDV_SCALE_EMPTY_READINGS=1','# PDV_SCALE_LOG=false',
     '# Só para PostgreSQL/Supabase. Prefira cadastrar pela tela de administração: lá a senha fica no cofre do Windows.',
     '# DATABASE_URL=postgres://usuario:senha@servidor:5432/postgres','# PDV_DATABASE_CA_FILE=',''].join('\r\n'),{flag:'wx'});
 }

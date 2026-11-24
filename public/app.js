@@ -1,5 +1,5 @@
 'use strict';
-let TOKEN='',state={},activeTab='vendas',currentReport=null,currentSale=null,seenAlert='',cashControlKey=null,payMethod='pix',manualMode='weight',checkingOut=false,reportPeriod='day',reportDate='',lastActive=null,renameId=null,transferFrom=null,transferKey=null,transferTo=null;
+let TOKEN='',state={},activeTab='vendas',currentReport=null,currentSale=null,seenAlert='',seenScaleError='',cashControlKey=null,payMethod='pix',manualMode='weight',checkingOut=false,reportPeriod='day',reportDate='',lastActive=null,renameId=null,transferFrom=null,transferKey=null,transferTo=null;
 const $=id=>document.getElementById(id);
 const money=c=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100);
 const signed=c=>(c>0?'+ ':c<0?'− ':'')+money(Math.abs(c||0));
@@ -147,25 +147,16 @@ function render(){
  const alert=state.system?.alert;$('config-dot').className='nav-dot'+(alert?' '+alert:' hidden');
  if(state.system?.version)$('app-version').textContent='v'+state.system.version;
  $('cash-badge').textContent=shift?'Caixa aberto':'Caixa fechado';$('cash-badge').className='pill '+(shift?'on':'warn');
- $('connection').textContent=s.mode==='demo'?'Simulador ativo':s.mode==='serial'?'Balança conectada':'Balança offline';$('connection').className='pill '+(s.mode==='offline'?'warn':'on');
  cloudBadge(state.system?.sync);
  $('operator-name').textContent=person?person.name:'Entrar';$('operator-role').textContent=person?.kind==='admin'?'Administrador':'Operador';$('operator-btn').classList.toggle('warn',!person);
  paint('operator-avatar',!person?icon('user'):person.kind==='admin'?icon('shield'):safe(initials(person.name)));
  $('closed-banner').classList.toggle('hidden',!!shift);
  renderSales();
- // Without readings from the scale the manual entry takes the main spot, so service never stops.
- const scaleDown=s.mode==='offline'||['offline','waiting','invalid'].includes(s.status);
- $('weight-actions').classList.toggle('attention',scaleDown);
- $('btn-manual').querySelector('span').textContent=scaleDown?'Balança sem comunicação? Digite o peso':'Digitar peso ou valor';
- $('weight-mode').textContent=s.mode.toUpperCase();$('scale-note').textContent=s.mode==='demo'?'Simulação de pesagem':s.mode==='serial'?'Balança Toledo conectada':'Ative o modo demonstração na aba Balança';
- $('weight-value').textContent=weight(s.grams||0);$('weight-status').textContent=statusDisplay(s.status);$('weight-status').className='chip '+(s.status==='stable'?'on':'warn');
- $('weight-instructions').textContent=!shift?'Abra o caixa para vender':scaleDown?'Use o lançamento manual':s.ready?'Pronto para adicionar':s.armed?'Aguardando peso estável':'Retire o prato para nova pesagem';
- $('weight-price').textContent=money(Math.round((s.grams||0)*c.priceKgCents/1000));
+ renderScale();
  // The price per kilo and the automatic capture: only who may change the configuration edits them.
  const cfg=can('config.manage');$('price-kg').readOnly=!cfg;$('btn-price').classList.toggle('hidden',!cfg);$('auto-capture-row').classList.toggle('hidden',!cfg);
  if(document.activeElement!==$('price-kg'))$('price-kg').value=price(c.priceKgCents);
  $('auto-capture').checked=c.autoCapture;
- $('btn-capture').disabled=!sell||!shift||!s.ready||!state.activeSale;
  $('btn-manual').classList.toggle('hidden',!can('sales.manual_weight')&&!can('sales.manual_value'));$('btn-manual').disabled=!shift||!state.activeSale;
  const pend=state.pendingCaptures||[];$('capture-pending').classList.toggle('hidden',!pend.length);
  paint('capture-pending',pend.map(p=>`<div class="pending-row">${icon('alert')}<div class="grow"><strong>Pesagem de ${weight(p.grams)} kg não foi gravada${p.label?` em ${safe(p.label)}`:''}</strong><small>${safe(p.error)}</small></div><button type="button" class="accent" data-retry="${safe(p.captureId)}">Tentar de novo</button><button type="button" class="secondary" data-drop="${safe(p.captureId)}">Descartar</button></div>`).join(''));
@@ -180,7 +171,22 @@ function render(){
  $('btn-discard').classList.toggle('hidden',!can('sales.discard'));$('btn-discard').disabled=!state.activeSale||(n===0&&state.openSales.length<2);
  $('btn-new-sale').disabled=!sell;
  renderCash();renderProducts();renderEmployees();renderScaleAccess();
- if(s.lastError&&s.lastError!==seenAlert){seenAlert=s.lastError;flash(s.lastError,true);}
+}
+// Everything that follows the plate: redrawn by the full refresh and by the light, frequent read of the scale.
+function renderScale(){
+ const s=state.scale,shift=state.cash.shift,sell=can('sales.create');
+ $('connection').textContent=s.mode==='demo'?'Simulador ativo':s.mode==='serial'?'Balança conectada':'Balança offline';$('connection').className='pill '+(s.mode==='offline'?'warn':'on');
+ // Without readings from the scale the manual entry takes the main spot, so service never stops.
+ const scaleDown=s.mode==='offline'||['offline','waiting','invalid'].includes(s.status);
+ $('weight-actions').classList.toggle('attention',scaleDown);
+ $('btn-manual').querySelector('span').textContent=scaleDown?'Balança sem comunicação? Digite o peso':'Digitar peso ou valor';
+ $('weight-mode').textContent=s.mode.toUpperCase();$('scale-note').textContent=s.mode==='demo'?'Simulação de pesagem':s.mode==='serial'?'Balança Toledo conectada':'Ative o modo demonstração na aba Balança';
+ $('weight-value').textContent=weight(s.grams||0);$('weight-status').textContent=statusDisplay(s.status);$('weight-status').className='chip '+(s.status==='stable'?'on':'warn');
+ $('weight-instructions').textContent=!shift?'Abra o caixa para vender':scaleDown?'Use o lançamento manual':s.ready?'Pronto para adicionar':s.armed?'Aguardando peso estável':'Retire o prato para nova pesagem';
+ $('weight-price').textContent=money(Math.round((s.grams||0)*state.config.priceKgCents/1000));
+ $('btn-capture').disabled=!sell||!shift||!s.ready||!state.activeSale;
+ if(s.lastError&&s.lastError!==seenScaleError){flash(s.lastError,true);}
+ seenScaleError=s.lastError;
  if(state.lastAutoError&&state.lastAutoError!==seenAlert){seenAlert=state.lastAutoError;flash(state.lastAutoError,true);}
 }
 // The tab bar: every open sale with its total. The active one is where the scale weighs, and only the operator
@@ -351,10 +357,33 @@ function renderProducts(){
  paint('product-list',!all.length?emptyState('box','Nenhum produto cadastrado','Use o formulário ao lado para cadastrar o primeiro item.'):!list.length?emptyState('search','Nenhum produto encontrado','Busque por outro nome, categoria ou canal.')
   :list.map(p=>{const fav=pf.isFavorite(p),label=fav?'Remover dos favoritos':'Marcar como favorito';return `<div class="rowline"><span class="tone-dot ${CAT_TONE[pf.categoryOf(p)]}"></span><div class="grow"><strong>${safe(p.name)}</strong><small>${money(p.price_cents)} · ${safe(pf.categoryOf(p))} · ${pf.CHANNEL_LABEL[p.channel]||safe(p.channel)}${p.reserved?` · ${p.reserved} em vendas abertas`:''}</small></div><span class="stock ${p.stock<1?'out':p.stock<=5?'low':''}">${p.stock<1?'Sem estoque':p.stock+' un.'}</span>${manage?`<div class="row-buttons"><button type="button" class="star-btn${fav?' on':''}" data-fav="${p.id}" aria-pressed="${fav}" aria-label="${label}: ${safe(p.name)}" title="${label}">${icon('star')}</button><button class="secondary" data-edit="${p.id}">Editar</button><button class="danger" data-delete="${p.id}" aria-label="Excluir ${safe(p.name)}" title="Excluir">${icon('trash')}</button></div>`:''}</div>`;}).join(''));
 }
+// Technical diagnostic of the reading (only who manages the scale; the server checks it too).
+const PHASE={OFFLINE:'Desconectada',WAITING_PRODUCT:'Aguardando produto',STABILIZING:'Estabilizando',READY:'Peso pronto',WAITING_REMOVAL:'Aguardando retirada'};
+const DIAG_EVENT={conectada:'Conectada',reconectada:'Reconectada',conexao_perdida:'Conexão perdida',tempo_esgotado:'Sem resposta da balança',falha_escrita:'Falha ao enviar',leitura:'Leitura',estado:'Estado',rearmado:'Prato livre',
+ pesagem_reservada:'Pesagem reservada',pesagem_gravada:'Pesagem gravada',falha_gravacao:'Falha ao gravar',captura_bloqueada:'Captura bloqueada',retido_por_lancamento_manual:'Retida por lançamento manual',tela_atualizada:'Tela atualizada'};
+function diagDetail(e){
+ if(e.type==='leitura')return `${e.frame??''} · ${statusDisplay(e.status)}${e.grams!=null?` · ${weight(e.grams)} kg`:''} · estáveis ${e.estaveis} · vazio ${e.vazios} · ${e.armed?'livre':'já lançada'}`;
+ if(e.type==='estado')return `${PHASE[e.de]||e.de} → ${PHASE[e.para]||e.para}`;
+ return [e.motivo,e.erro,e.grams!=null?`${weight(e.grams)} kg`:'',e.gravacaoMs!=null?`gravação ${e.gravacaoMs} ms`:'',e.ms!=null?`${e.ms} ms`:'',e.porta].filter(Boolean).join(' · ');
+}
+async function loadScaleDiagnostics(){
+ if(!can('scale.manage'))return;
+ try{
+  const d=await get('/api/scale/diagnostics'),s=d.state,c=d.captures;
+  const times=t=>t.count?`média ${t.avgMs} · P95 ${t.p95Ms} · máx. ${t.maxMs} ms (${t.count})`:'sem medidas';
+  paint('scale-diag-summary',[['Estado',PHASE[s.phase]||s.phase],['Por que não lança agora',s.blockReason||c.lastRefusal||'—'],
+   ['Leitura',`a cada ${d.config.pollMs} ms · ${d.config.stableReadings} iguais para aceitar · ${d.config.emptyReadings} de vazio para liberar`],
+   ['Pedidos / respostas / sem resposta',`${d.counters.enq} / ${d.counters.frames} / ${d.counters.timeouts}`],['Resposta da balança',times(d.serial)],
+   ['Espera pelo banco',times(c.databaseWait)],['Gravação',times(c.write)],['Peso estável até gravado',times(c.stableToStored)],['Gravado até a tela',times(c.storedToScreen)],
+   ['Em gravação / pendentes',`${c.inFlight} / ${c.pending.length}`]].map(([k,v])=>`<div class="rowline"><span>${safe(k)}</span><strong>${safe(v)}</strong></div>`).join(''));
+  paint('scale-diag-events',d.events.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Hora</th><th>Evento</th><th>Detalhe</th></tr></thead><tbody>${d.events.slice(0,60).map(e=>`<tr><td>${new Date(e.at).toLocaleTimeString('pt-BR')}</td><td>${safe(DIAG_EVENT[e.type]||e.type)}</td><td>${safe(diagDetail(e))}</td></tr>`).join('')}</tbody></table></div>`:emptyState('scale','Nenhuma leitura ainda',''));
+ }catch(e){flash(e.message,true);}
+}
 // The Balança screen: connecting the scale needs "scale.manage"; the simulator card shows only where it works.
 function renderScaleAccess(){
  const manage=can('scale.manage');$('scale-connect-card').classList.toggle('hidden',!manage);$('scale-locked').classList.toggle('hidden',manage);
  $('demo-scale-card').classList.toggle('hidden',!state.simulator);
+ $('scale-diag-card').classList.toggle('hidden',!manage);
 }
 function renderEmployees(){
  const manage=can('employees.manage');$('employee-form-card').classList.toggle('hidden',!manage);
@@ -466,7 +495,15 @@ function systemBanner(e){
 // right after a sale) runs once more when it ends, so the screen never stays with data from before the change.
 let refreshing=null,refreshAgain=null;
 // A 401 is not a server problem: the sign-in screen takes over (get() already opened it).
-async function loadState(){try{state=await get('/api/state');systemBanner(null);render();}catch(e){systemBanner(e.status===401?null:e);}}
+async function loadState(){
+ const startedAt=performance.now();
+ try{
+  const next=await get('/api/state');
+  // A light read that answered after this one was asked is newer: the weight on screen never steps back.
+  if(live&&live.at>startedAt)Object.assign(next,{scale:live.scale,canSwitch:live.canSwitch});
+  state=next;systemBanner(null);render();
+ }catch(e){systemBanner(e.status===401?null:e);}
+}
 function refresh(){
  if(!refreshing){refreshing=loadState().finally(()=>{refreshing=null;});return refreshing;}
  if(!refreshAgain)refreshAgain=refreshing.then(()=>{refreshAgain=null;return refresh();});
@@ -475,12 +512,33 @@ function refresh(){
 // The next automatic refresh is scheduled only after the previous one answered.
 // Slower while nobody is signed in: the screen only waits for someone to sign in.
 async function poll(){await refresh();setTimeout(poll,document.hidden?3000:loginOpen()||setupMode?2500:850);}
+// The scale is read on its own, much more often, with a request that costs the server no sales queries. liveKey tells
+// when something was written (a weighing arrived): only then the full state is read right away. The next read is
+// scheduled after the previous one answered, so requests never overlap.
+let live=null;
+async function loadScale(){
+ const x=await get('/api/scale/state');
+ if(!state.scale||loginOpen())return;
+ live={at:performance.now(),scale:x.scale,canSwitch:x.canSwitch};
+ const switched=state.canSwitch!==x.canSwitch,changed=x.liveKey!==state.liveKey;
+ state.scale=x.scale;state.canSwitch=x.canSwitch;state.lastAutoError=x.lastAutoError;
+ renderScale();if(switched)renderSales();
+ if(changed)await refresh();
+}
+async function pollScale(){
+ let delay=1000;
+ if(!document.hidden&&!loginOpen()&&!setupMode&&state.scale){
+  // The full refresh reports a lost server; here it only slows down.
+  try{await loadScale();delay=activeTab==='vendas'||activeTab==='balanca'?200:1000;}catch(_){}
+ }
+ setTimeout(pollScale,delay);
+}
 // Screens: only the ones this person may open (state.auth.screens, decided on the server).
 const allowedTab=name=>setupMode?name==='configuracoes':!!state.auth?.screens?.includes(name);
 function showPanel(name){activeTab=name;document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('main section.panel').forEach(el=>el.classList.toggle('hidden',el.id!==name));window.scrollTo({top:0});}
 function tab(name){
  if(!allowedTab(name))return flash('Esta tela não está liberada para você. Peça ao administrador.',true);
- showPanel(name);if(name==='relatorios')renderReports();if(name==='historico')renderHistory();if(name==='configuracoes')window.LuminorAdmin?.open();
+ showPanel(name);if(name==='balanca')loadScaleDiagnostics();if(name==='relatorios')renderReports();if(name==='historico')renderHistory();if(name==='configuracoes')window.LuminorAdmin?.open();
 }
 // The menu shows only the allowed screens; a screen no longer allowed (permission removed) gives way to the first one.
 function applyAccess(){
@@ -499,7 +557,8 @@ function signedOut(){if(setupMode||loginOpen())return;showLogin();}
 // What the previous person saw does not stay in the page for the next one.
 function forget(){
  state={};currentReport=null;currentSale=null;cashControlKey=null;lastActive=null;
- for(const id of ['hist-list','hist-summary','report-stats','report-operators','report-shifts','report-movements','report-chart','report-chart-table','sale-body','cash-summary','cash-events','cash-controls','cash-open-sales','cart-items','product-list','employee-list','quick-products','capture-pending']){const el=$(id);if(el){el.innerHTML='';el._html=undefined;}}
+ live=null;
+ for(const id of ['scale-diag-summary','scale-diag-events','hist-list','hist-summary','report-stats','report-operators','report-shifts','report-movements','report-chart','report-chart-table','sale-body','cash-summary','cash-events','cash-controls','cash-open-sales','cart-items','product-list','employee-list','quick-products','capture-pending']){const el=$(id);if(el){el.innerHTML='';el._html=undefined;}}
  $('cash-received').value='';$('product-form').reset();$('employee-form').reset();
 }
 async function showLogin(){
@@ -583,7 +642,8 @@ async function signOut(){
 async function boot(){
  // "Automática" lets the server classify a new product by its name; editing shows the category it has.
  $('product-category').innerHTML='<option value="">Automática (pelo nome)</option>'+PF().CATEGORIES.map(c=>`<option value="${safe(c)}">${safe(c)}</option>`).join('');
- try{TOKEN=(await get('/api/session')).token;}catch(e){flash(e.message,true);}await poll();
+ try{TOKEN=(await get('/api/session')).token;}catch(e){flash(e.message,true);}await poll();pollScale();
+ $('btn-scale-diag').addEventListener('click',loadScaleDiagnostics);
  $('hist-from').value=$('hist-to').value=localToday();
  document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.tab)));
  document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]');if(!b)return;b.closest('dialog')?.close();tab(b.dataset.goto);(b.dataset.goto==='caixa'?$('opening-amount'):b.dataset.goto==='funcionarios'?$('employee-name'):null)?.focus();});

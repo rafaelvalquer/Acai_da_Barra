@@ -91,7 +91,9 @@ class AdminSystem {
     const d={generatedAt:new Date().toISOString(),version:this.version,
       service:{status:'em execução',pid:process.pid,startedAt:STARTED,uptimeSec:Math.round(process.uptime()),memoryMb:Math.round(mem.rss/1048576),node:process.version,
         platform:`${os.type()} ${os.release()}`,supervised:!!process.env.PDV_LAUNCHER},
-      scale:{status:scale.status,mode:scale.mode,port:hw?.path||null,lastError:scale.lastError||null,updatedAt:scale.updatedAt},
+      scale:{status:scale.status,mode:scale.mode,port:hw?.path||null,lastError:scale.lastError||null,updatedAt:scale.updatedAt,
+        // The exported diagnostic carries the latest readings and timings of the scale (technical data only).
+        ...(full&&this.scale.diagnostics?{reading:this.scale.diagnostics()}:{})},
       database:this.databases.status(),sync:this.sync.status(),backup:{lastSuccessAt:b.lastSuccess?.at||null,lastFailure:b.lastFailure,next:b.next,alerts:b.alerts},
       disk,paths:{home:this.config.home,data:this.config.paths.data,backups:this.config.paths.backups,logs:this.config.paths.logs},
       settings:{port:this.config.port,timezone:process.env.LUMINOR_TIMEZONE||'America/Sao_Paulo',vault:this.config.vault,envFile:this.config.envFile},

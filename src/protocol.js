@@ -23,7 +23,9 @@ class Prt5Parser {
       if (b === STX) {this.open = true; this.buf = [];} 
       else if (b === ETX && this.open) {
         this.open = false;
-        this.onFrame(decodePrt5(Buffer.from(this.buf).toString('ascii'), this.maxGrams));
+        // The raw text goes along for the technical log.
+        const text = Buffer.from(this.buf).toString('ascii');
+        this.onFrame(decodePrt5(text, this.maxGrams), text);
         this.buf = [];
       } else if (this.open) {
         if (this.buf.length < 16) this.buf.push(b);
