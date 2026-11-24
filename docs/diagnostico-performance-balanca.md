@@ -150,7 +150,7 @@ A correção só está homologada com todos os itens marcados.
 3. Rode `instalador\instalar.bat` desta versão (faz o backup "antes de atualizar").
 4. Confira a balança conectada e faça os itens da seção 7.
 
-Esta branch **não deve ser unida à `main` antes da homologação**. Para homologar na loja, monte o pacote a partir da própria branch.
+Esta correção entrou na `main` **antes da homologação**, por decisão do projeto. Estar na `main` não quer dizer homologada: instale na loja já prevendo a seção 7 e o rollback abaixo.
 
 ## 9. Voltar atrás (rollback)
 
